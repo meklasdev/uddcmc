@@ -1,13 +1,12 @@
 use crate::platform::{AGENT_NAME, LIBRARY_NAME, SOCKET_ADDRESS};
 use log::{error, info};
 use proc_maps::get_process_maps;
+use ptrace_inject::{Injector, Process};
 use std::io::{Error, Write};
 use std::net::TcpStream;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
 use std::time::Duration;
 use std::{path, thread};
-use ptrace_inject::{Injector, Process};
 
 pub fn inject(pid: u32) -> Result<(), Error> {
     // First time: load the agent_loader
@@ -21,22 +20,26 @@ pub fn inject(pid: u32) -> Result<(), Error> {
             Ok(p) => p,
             Err(e) => {
                 error!("Failed to get Process for pid {}: {:?}", pid, e);
-                return Err(Error::new(std::io::ErrorKind::Other, format!("Process::get failed: {:?}", e)));
+                return Err(Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Process::get failed: {:?}", e),
+                ));
             }
         };
 
         match Injector::attach(proc) {
-            Ok(mut injector) => {
-                match injector.inject(&loader_path) {
-                    Ok(_) => {
-                        info!("Successfully injected library: {}", loader_path.to_string_lossy());
-                    }
-                    Err(e) => {
-                        error!("Injection failed: {:?}", e);
-                        return Err(Error::new(std::io::ErrorKind::Other, e.to_string()));
-                    }
+            Ok(mut injector) => match injector.inject(&loader_path) {
+                Ok(_) => {
+                    info!(
+                        "Successfully injected library: {}",
+                        loader_path.to_string_lossy()
+                    );
                 }
-            }
+                Err(e) => {
+                    error!("Injection failed: {:?}", e);
+                    return Err(Error::new(std::io::ErrorKind::Other, e.to_string()));
+                }
+            },
             Err(e) => {
                 error!("Failed to attach to pid {}: {:?}", pid, e);
                 return Err(Error::new(std::io::ErrorKind::Other, e.to_string()));
@@ -78,59 +81,6 @@ pub fn inject(pid: u32) -> Result<(), Error> {
     }
 
     Ok(())
-}
-
-pub fn find_pid() -> Option<u32> {
-    let output = Command::new("ps")
-        .arg("ax")
-        .stdout(Stdio::piped())
-        .spawn()
-        .expect("Failed to execute `ps ax` command")
-        .stdout
-        .expect("Failed to capture stdout");
-
-    let output = Command::new("grep")
-        .arg("minecraft")
-        .stdin(output)
-        .stdout(Stdio::piped())
-        .spawn()
-        .expect("Failed to execute `grep minecraft` command")
-        .stdout
-        .expect("Failed to capture stdout");
-
-    let output = Command::new("grep")
-        .arg("java")
-        .stdin(output)
-        .stdout(Stdio::piped())
-        .spawn()
-        .expect("Failed to execute `grep java` command")
-        .stdout
-        .expect("Failed to capture stdout");
-
-    let output = Command::new("grep")
-        .arg("-v")
-        .arg("grep")
-        .stdin(output)
-        .stdout(Stdio::piped())
-        .spawn()
-        .expect("Failed to execute `grep -v grep` command")
-        .stdout
-        .expect("Failed to capture stdout");
-
-    let output = Command::new("awk")
-        .arg("{print $1}")
-        .stdin(output)
-        .stdout(Stdio::piped())
-        .output()
-        .expect("Failed to execute `awk '{print $1}'` command");
-
-    let result = String::from_utf8(output.stdout).expect("Failed to parse output");
-
-    if !result.is_empty() {
-        Some(result.trim().parse::<u32>().expect("Failed to parse PID"))
-    } else {
-        None
-    }
 }
 
 fn find_library(pid: u32, lib_name: &str) -> bool {

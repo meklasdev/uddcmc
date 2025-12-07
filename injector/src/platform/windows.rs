@@ -1,6 +1,7 @@
 use crate::platform::{AGENT_NAME, LIBRARY_NAME, SOCKET_ADDRESS};
+use dll_syringe::process::{OwnedProcess, Process};
+use dll_syringe::Syringe;
 use log::{error, info};
-use proc_maps::get_process_maps;
 use std::io::Write;
 use std::net::TcpStream;
 use std::path::PathBuf;
@@ -9,36 +10,46 @@ use std::time::Duration;
 use std::{io, path, thread};
 
 pub fn inject(pid: u32) -> Result<(), io::Error> {
-    let loader_path = PathBuf::from(format!("{}.dll", AGENT_NAME));
+    let target_process = OwnedProcess::from_pid(pid)
+        .map_err(|e| io::Error::new(io::ErrorKind::PermissionDenied, e))?;
+
+    let syringe = Syringe::for_process(target_process);
+
+    let loader_dll_name = format!("{}.dll", AGENT_NAME);
+    let loader_path = PathBuf::from(&loader_dll_name);
     let lib_path = PathBuf::from(format!("{}.dll", LIBRARY_NAME));
 
-    // Check if agent_loader is already loaded
-    if !find_library(pid, "agent_loader") {
-        info!("Loading Agent Loader");
+    let abs_loader_path = std::fs::canonicalize(&loader_path)
+        .map_err(|e| io::Error::new(io::ErrorKind::NotFound, e))?;
 
-        // Load agent_loader via JVMTI
-        match Command::new("jcmd")
-            .arg(pid.to_string())
-            .arg("JVMTI.agent_load")
-            .arg(format!("{:?}", path::absolute(&loader_path)?))
-            .output()
-        {
-            Ok(output) if output.status.success() => {
-                info!("Agent Loader loaded via jcmd: {:?}", loader_path);
-            }
-            Ok(output) => {
-                error!(
-                    "jcmd failed (stderr): {}",
-                    String::from_utf8_lossy(&output.stderr)
-                );
+    let is_loaded = syringe
+        .process()
+        .find_module_by_name(&loader_dll_name)
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?
+        .is_some();
+
+    // Check if agent_loader is already loaded
+    if !is_loaded {
+        info!(
+            "Injecting {} into PID {}...",
+            abs_loader_path.display(),
+            pid
+        );
+
+        match syringe.inject(&abs_loader_path) {
+            Ok(module) => {
+                info!("The DLL is successfully injected! {:?}", module);
             }
             Err(e) => {
-                error!("Unable to execute jcmd: {:?}", e);
+                return Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    format!("Injection failed: {}", e),
+                ));
             }
         }
 
         // Wait a moment for complete initialization
-        thread::sleep(Duration::from_millis(500));
+        thread::sleep(Duration::from_millis(1000));
     } else {
         info!("Agent Loader already loaded");
     }
@@ -72,55 +83,4 @@ pub fn inject(pid: u32) -> Result<(), io::Error> {
     }
 
     Ok(())
-}
-
-pub fn find_pid() -> Option<u32> {
-    let output = Command::new("powershell")
-        .arg("-NoProfile")
-        .arg("-Command")
-        .arg(
-            r#"Get-Process -Name javaw -ErrorAction SilentlyContinue |
-                     Where-Object { $_.MainWindowTitle -like '*Minecraft*' } |
-                     Select-Object -ExpandProperty Id"#,
-        )
-        .output();
-
-    if output.is_err() {
-        eprintln!("Output error, {}", output.err().unwrap());
-        return None;
-    }
-
-    let output = output.unwrap();
-
-    if !output.status.success() {
-        eprintln!("PowerShell failed");
-        return None;
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    for line in stdout.lines() {
-        if let Ok(pid) = line.trim().parse::<u32>() {
-            println!("Found PID: {}", pid);
-            return Some(pid);
-        }
-    }
-    None
-}
-
-fn find_library(pid: u32, lib_name: &str) -> bool {
-    let maps = get_process_maps(pid).ok();
-    if maps.is_none() {
-        return false;
-    }
-    let maps = maps.unwrap();
-
-    for map in maps {
-        if let Some(path) = map.filename() {
-            if path.ends_with(format!("{}.dll", lib_name)) {
-                // Library loaded
-                return true;
-            }
-        }
-    }
-    false
 }
