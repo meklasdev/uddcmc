@@ -72,7 +72,13 @@ impl FieldType<'_> {
 impl Mapping {
     pub fn new() -> anyhow::Result<Mapping> {
         let contents = include_str!("../../../mappings.json");
-        let mapping: Mapping = serde_json::from_str(contents)?;
+        let mut mapping: Mapping = serde_json::from_str(contents)?;
+
+        let java_contents = include_str!("../../../java_mappings.json");
+        let java_classes: HashMap<String, MinecraftClass> = serde_json::from_str(java_contents)?;
+
+        mapping.classes.extend(java_classes);
+
         Ok(mapping)
     }
 

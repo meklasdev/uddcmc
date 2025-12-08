@@ -1,0 +1,26 @@
+{
+  "java/lang/Iterable": {
+    "name": "java/lang/Iterable",
+    "methods": {
+      "iterator": {
+        "name": "iterator",
+        "signature": "()Ljava/util/Iterator;"
+      }
+    },
+    "fields": {}
+  },
+  "java/util/Iterator": {
+    "name": "java/util/Iterator",
+    "methods": {
+      "hasNext": {
+        "name": "hasNext",
+        "signature": "()Z"
+      },
+      "next": {
+        "name": "next",
+        "signature": "()Ljava/lang/Object;"
+      }
+    },
+    "fields": {}
+  }
+}
