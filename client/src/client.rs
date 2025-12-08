@@ -47,9 +47,17 @@ impl DarkClient {
         self.jvm.attach_current_thread_as_daemon()
     }
 
-    pub fn register_module(&self, module: Arc<Mutex<dyn Module + Send + Sync>>) {
-        let module_name = module.lock().unwrap().get_module_data().name.clone();
-        self.modules.write().unwrap().insert(module_name, module);
+    pub fn register_module<M>(&self, module: M)
+    where
+        M: Module + Send + Sync + 'static,
+    {
+        let module: ModuleType = Box::new(module);
+        let module_name = module.get_module_data().name.clone();
+
+        self.modules
+            .write()
+            .unwrap()
+            .insert(module_name, Arc::new(Mutex::new(module)));
     }
 
     pub fn tick(&self) {

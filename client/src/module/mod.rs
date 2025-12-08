@@ -1,9 +1,10 @@
 use crate::mapping::entity::player::LocalPlayer;
 use std::fmt::Debug;
 
-pub mod fly;
+pub mod movement;
+pub mod combat;
 
-pub type ModuleType = dyn Module + Send + Sync;
+pub type ModuleType = Box<dyn Module + Send + Sync>;
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

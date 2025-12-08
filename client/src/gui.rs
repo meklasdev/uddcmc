@@ -213,7 +213,7 @@ impl GUI {
                 // Render module settings
                 if module_data.enabled {
                     ui.separator();
-                    self.render_module_settings(ui, &mut *module);
+                    self.render_module_settings(ui, &mut **module);
                 }
             });
 

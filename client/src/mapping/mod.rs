@@ -1,6 +1,6 @@
 use crate::client::DarkClient;
 use crate::mapping::class::MinecraftClass;
-use crate::mapping::class_type::MinecraftClassType;
+pub use crate::mapping::class_type::MinecraftClassType;
 use crate::mapping::client::minecraft::Minecraft;
 use crate::mapping::minecraft_version::MinecraftVersion;
 use jni::objects::{GlobalRef, JObject, JString, JValue, JValueOwned};
@@ -86,7 +86,7 @@ impl Mapping {
         DarkClient::instance()
     }
 
-    fn get_env(&'_ self) -> anyhow::Result<JNIEnv<'_>> {
+    pub fn get_env(&'_ self) -> anyhow::Result<JNIEnv<'_>> {
         Ok(self.get_client().get_env()?)
     }
 
@@ -163,7 +163,11 @@ impl Mapping {
 
             let translated_return = self.translate_type_descriptor(&mut return_type_str);
 
-            format!("({}) -> {}", translated_params.join(", "), translated_return)
+            format!(
+                "({}) -> {}",
+                translated_params.join(", "),
+                translated_return
+            )
         } else {
             signature.to_string() // Return the original signature if it's not a valid signature
         }
@@ -323,6 +327,27 @@ impl Mapping {
                 .to_string();
             Ok(value)
         }
+    }
+
+    pub fn is_instance_of(
+        &self,
+        class_type: MinecraftClassType,
+        instance: &JObject,
+    ) -> anyhow::Result<bool> {
+        let mut env = self.get_env()?;
+        let class = self.get_class(class_type.get_name())?;
+        let jclass = match env.find_class(&class.name) {
+            Ok(jclass) => jclass,
+            Err(_) => {
+                return Err(anyhow::anyhow!(
+                    "Class {} ({}) not found",
+                    class_type.get_name(),
+                    class.name
+                ))
+            }
+        };
+
+        Ok(env.is_instance_of(instance, jclass)?)
     }
 }
 

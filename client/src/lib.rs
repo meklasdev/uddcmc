@@ -10,15 +10,17 @@ use crate::client::keyboard::{start_keyboard_handler, stop_keyboard_handler};
 use crate::client::DarkClient;
 use crate::gui::start_gui;
 use crate::mapping::client::minecraft::Minecraft;
-use crate::module::fly::FlyModule;
-use crate::module::ModuleType;
+use module::combat::aimbot::AimbotModule;
+use module::combat::killaura::KillAuraModule;
+use module::movement::fly::FlyModule;
 use log::{error, info, LevelFilter};
 use simplelog::{Config, WriteLogger};
 use std::fs::File;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
+use crate::module::combat::mobaura::MobAuraModule;
 
 static TICK_THREAD: OnceLock<Mutex<Option<thread::JoinHandle<()>>>> = OnceLock::new();
 static GUI_THREAD: OnceLock<Mutex<Option<thread::JoinHandle<()>>>> = OnceLock::new();
@@ -133,11 +135,8 @@ pub extern "C" fn cleanup_client() {
 fn register_modules(minecraft: &'static Minecraft) {
     let client = DarkClient::instance();
 
-    let fly_module = Arc::new(Mutex::new(FlyModule::new(minecraft.player.clone())));
-
-    let register_module = |module: Arc<Mutex<ModuleType>>| {
-        client.register_module(module);
-    };
-
-    register_module(fly_module);
+    client.register_module(FlyModule::new(minecraft.player.clone()));
+    client.register_module(KillAuraModule::new());
+    client.register_module(MobAuraModule::new());
+    client.register_module(AimbotModule::new());
 }

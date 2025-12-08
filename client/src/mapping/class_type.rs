@@ -11,6 +11,10 @@ pub enum MinecraftClassType {
     Entity,
     Vec3,
     Window,
+    MultiPlayerGameMode,
+    Iterable,
+    Iterator,
+    Mob,
 }
 
 impl MinecraftClassType {
@@ -24,6 +28,12 @@ impl MinecraftClassType {
             MinecraftClassType::Entity => "net/minecraft/world/entity/Entity",
             MinecraftClassType::Vec3 => "net/minecraft/world/phys/Vec3",
             MinecraftClassType::Window => "com/mojang/blaze3d/platform/Window",
+            MinecraftClassType::MultiPlayerGameMode => {
+                "net/minecraft/client/multiplayer/MultiPlayerGameMode"
+            }
+            MinecraftClassType::Iterable => "java/lang/Iterable",
+            MinecraftClassType::Iterator => "java/util/Iterator",
+            MinecraftClassType::Mob => "net/minecraft/world/entity/Mob",
         }
     }
 }

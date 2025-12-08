@@ -1,11 +1,12 @@
 use crate::mapping::client::window::Window;
 use crate::mapping::client::world::World;
 use crate::mapping::entity::player::LocalPlayer;
-use crate::mapping::{Mapping, MinecraftClassType};
+use crate::mapping::{FieldType, GameContext, Mapping, MinecraftClassType};
 use jni::objects::GlobalRef;
 use log::error;
 use std::ops::Deref;
 use std::sync::{Arc, OnceLock};
+use crate::mapping::client::gamemode::MultiPlayerGameMode;
 
 #[derive(Debug)]
 pub struct Minecraft {
@@ -15,7 +16,10 @@ pub struct Minecraft {
     #[allow(dead_code)]
     pub world: World,
     pub window: Window,
+    pub game_mode: MultiPlayerGameMode,
 }
+
+impl GameContext for Minecraft {}
 
 impl Minecraft {
     pub fn instance() -> &'static Minecraft {
@@ -44,6 +48,18 @@ impl Minecraft {
         let player = LocalPlayer::new(&minecraft, &mapping)?;
         let world = World::new(&minecraft, &mapping)?;
         let window = Window::new(&minecraft, &mapping)?;
+        let game_mode = MultiPlayerGameMode::new(
+            mapping.new_global_ref(
+                mapping
+                    .get_field(
+                        MinecraftClassType::Minecraft,
+                        minecraft.as_obj(),
+                        "gameMode",
+                        FieldType::Object(MinecraftClassType::MultiPlayerGameMode, &mapping),
+                    )?
+                    .l()?,
+            )?,
+        );
 
         Ok(Minecraft {
             jni_ref: minecraft,
@@ -51,6 +67,7 @@ impl Minecraft {
             player,
             world,
             window,
+            game_mode,
         })
     }
 
