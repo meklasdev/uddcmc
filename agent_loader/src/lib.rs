@@ -3,6 +3,8 @@ extern crate log;
 extern crate simplelog;
 
 use ctor::*;
+use jni::sys::{jsize, JNI_GetCreatedJavaVMs, JNI_OK};
+use jni::JavaVM;
 use libloading::{Library, Symbol};
 use log::{error, info, LevelFilter};
 use simplelog::{Config, WriteLogger};
@@ -14,8 +16,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 use std::{path, thread};
-use jni::JavaVM;
-use jni::sys::{jsize, JNI_GetCreatedJavaVMs, JNI_OK};
 
 // Global variable to keep track of the loaded library
 static CLIENT_LIBRARY: OnceLock<Mutex<Option<Library>>> = OnceLock::new();

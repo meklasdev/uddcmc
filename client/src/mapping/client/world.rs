@@ -1,8 +1,8 @@
+use crate::mapping::entity::Entity;
+use crate::mapping::java::iterable::Iterable;
 use crate::mapping::{FieldType, GameContext, Mapping, MinecraftClassType};
 use jni::objects::GlobalRef;
 use std::ops::Deref;
-use crate::mapping::entity::Entity;
-use crate::mapping::java::iterable::Iterable;
 
 #[derive(Debug)]
 pub struct World {

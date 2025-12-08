@@ -3,25 +3,24 @@
 extern crate jni;
 mod client;
 mod gui;
+mod hook;
 mod mapping;
 mod module;
-mod hook;
 
 use crate::client::keyboard::{start_keyboard_handler, stop_keyboard_handler};
 use crate::client::DarkClient;
 use crate::gui::start_gui;
 use crate::mapping::client::minecraft::Minecraft;
+use crate::module::combat::mobaura::MobAuraModule;
+use log::{error, info, LevelFilter};
 use module::combat::aimbot::AimbotModule;
 use module::combat::killaura::KillAuraModule;
 use module::movement::fly::FlyModule;
-use log::{error, info, LevelFilter};
 use simplelog::{Config, WriteLogger};
 use std::fs::File;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
-use std::time::Duration;
-use crate::module::combat::mobaura::MobAuraModule;
 
 static GUI_THREAD: OnceLock<Mutex<Option<thread::JoinHandle<()>>>> = OnceLock::new();
 

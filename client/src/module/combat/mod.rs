@@ -1,4 +1,4 @@
 pub mod aimbot;
-pub mod killaura;
 pub mod aura;
+pub mod killaura;
 pub mod mobaura;

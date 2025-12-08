@@ -1,3 +1,4 @@
+use crate::mapping::client::gamemode::MultiPlayerGameMode;
 use crate::mapping::client::window::Window;
 use crate::mapping::client::world::World;
 use crate::mapping::entity::player::LocalPlayer;
@@ -6,7 +7,6 @@ use jni::objects::GlobalRef;
 use log::error;
 use std::ops::Deref;
 use std::sync::{Arc, OnceLock};
-use crate::mapping::client::gamemode::MultiPlayerGameMode;
 
 #[derive(Debug)]
 pub struct Minecraft {

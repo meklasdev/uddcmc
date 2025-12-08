@@ -1,7 +1,7 @@
 use crate::client::DarkClient;
 use crate::mapping::client::minecraft::Minecraft;
 use cfg_if::cfg_if;
-use log::{info};
+use log::info;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Once;
 

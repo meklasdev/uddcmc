@@ -184,7 +184,13 @@ impl Mapping {
         let class = self.get_class(class_type.get_name())?;
         let jclass = match env.find_class(&class.name) {
             Ok(jclass) => jclass,
-            Err(_) => return Err(anyhow::anyhow!("Class {} ({}) not found", class_type.get_name(), class.name)),
+            Err(_) => {
+                return Err(anyhow::anyhow!(
+                    "Class {} ({}) not found",
+                    class_type.get_name(),
+                    class.name
+                ))
+            }
         };
         let method = class.get_method_by_args(method_name, args)?;
         match env.call_static_method(jclass, &method.name, &method.signature, args) {
@@ -243,20 +249,24 @@ impl Mapping {
         let class = self.get_class(class_type.get_name())?;
         let jclass = match env.find_class(&class.name) {
             Ok(jclass) => jclass,
-            Err(_) => return Err(anyhow::anyhow!("Class {} ({}) not found", class_type.get_name(), class.name)),
-        };
-        let field = class.get_field(field_name)?;
-        match env.get_static_field(jclass, &field.name, field_type.get_signature()?) {
-            Ok(value) => Ok(value),
             Err(_) => {
-                Err(anyhow::anyhow!(
-                    "Error getting static field {} ({}) from class {} ({})",
-                    field_name,
-                    field.name,
+                return Err(anyhow::anyhow!(
+                    "Class {} ({}) not found",
                     class_type.get_name(),
                     class.name
                 ))
             }
+        };
+        let field = class.get_field(field_name)?;
+        match env.get_static_field(jclass, &field.name, field_type.get_signature()?) {
+            Ok(value) => Ok(value),
+            Err(_) => Err(anyhow::anyhow!(
+                "Error getting static field {} ({}) from class {} ({})",
+                field_name,
+                field.name,
+                class_type.get_name(),
+                class.name
+            )),
         }
     }
 
@@ -274,15 +284,13 @@ impl Mapping {
 
         match env.get_field(instance, &field.name, field_type.get_signature()?) {
             Ok(value) => Ok(value),
-            Err(_) => {
-                Err(anyhow::anyhow!(
-                    "Error getting field {} ({}) from class {} ({})",
-                    field_name,
-                    field.name,
-                    class_type.get_name(),
-                    class.name
-                ))
-            }
+            Err(_) => Err(anyhow::anyhow!(
+                "Error getting field {} ({}) from class {} ({})",
+                field_name,
+                field.name,
+                class_type.get_name(),
+                class.name
+            )),
         }
     }
 
@@ -300,15 +308,13 @@ impl Mapping {
         let field = class.get_field(field_name)?;
         match env.set_field(instance, &field.name, field_type.get_signature()?, value) {
             Ok(_) => Ok(()),
-            Err(_) => {
-                Err(anyhow::anyhow!(
-                    "Error setting field {} ({}) in class {} ({})",
-                    field_name,
-                    field.name,
-                    class_type.get_name(),
-                    class.name
-                ))
-            }
+            Err(_) => Err(anyhow::anyhow!(
+                "Error setting field {} ({}) in class {} ({})",
+                field_name,
+                field.name,
+                class_type.get_name(),
+                class.name
+            )),
         }
     }
 

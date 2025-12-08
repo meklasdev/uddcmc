@@ -1,8 +1,8 @@
 use crate::mapping::entity::player::LocalPlayer;
 use std::fmt::Debug;
 
-pub mod movement;
 pub mod combat;
+pub mod movement;
 
 pub type ModuleType = Box<dyn Module + Send + Sync>;
 

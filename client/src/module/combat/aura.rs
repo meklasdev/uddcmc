@@ -77,7 +77,7 @@ impl Module for BaseAura {
             let dist = ((player_pos.0 - entity_pos.0).powi(2)
                 + (player_pos.1 - entity_pos.1).powi(2)
                 + (player_pos.2 - entity_pos.2).powi(2))
-                .sqrt();
+            .sqrt();
 
             if dist <= range {
                 game_mode.attack(player, &entity)?;
