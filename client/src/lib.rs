@@ -5,6 +5,7 @@ mod client;
 mod gui;
 mod mapping;
 mod module;
+mod hook;
 
 use crate::client::keyboard::{start_keyboard_handler, stop_keyboard_handler};
 use crate::client::DarkClient;
@@ -22,15 +23,10 @@ use std::thread;
 use std::time::Duration;
 use crate::module::combat::mobaura::MobAuraModule;
 
-static TICK_THREAD: OnceLock<Mutex<Option<thread::JoinHandle<()>>>> = OnceLock::new();
 static GUI_THREAD: OnceLock<Mutex<Option<thread::JoinHandle<()>>>> = OnceLock::new();
 
 // Flag to control if the client is running
 static RUNNING: AtomicBool = AtomicBool::new(false);
-
-fn tick_thread() -> &'static Mutex<Option<thread::JoinHandle<()>>> {
-    TICK_THREAD.get_or_init(|| Mutex::new(None))
-}
 
 fn gui_thread() -> &'static Mutex<Option<thread::JoinHandle<()>>> {
     GUI_THREAD.get_or_init(|| Mutex::new(None))
@@ -62,16 +58,10 @@ pub extern "C" fn initialize_client() {
 
         start_keyboard_handler();
 
-        // Tick thread
-        let thread_handle = thread::spawn(move || {
-            let client = DarkClient::instance();
-            while RUNNING.load(Ordering::SeqCst) {
-                // Wait for Minecraft tick
-                thread::sleep(Duration::from_millis(50)); // 20 ticks per second
-                client.tick();
-            }
-            info!("Tick thread terminated");
-        });
+        // Install hooks
+        if let Err(e) = hook::install_hooks() {
+            error!("Failed to install hooks: {}", e);
+        }
 
         let gui_handle = thread::spawn(move || match start_gui() {
             Ok(_) => info!("GUI thread started"),
@@ -79,9 +69,6 @@ pub extern "C" fn initialize_client() {
         });
 
         // Memorize the thread handle in a thread-safe way
-        let mut tick_lock = tick_thread().lock().unwrap();
-        *tick_lock = Some(thread_handle);
-
         let mut gui_lock = gui_thread().lock().unwrap();
         *gui_lock = Some(gui_handle);
 
@@ -103,28 +90,15 @@ pub extern "C" fn cleanup_client() {
     // Stop the keyboard handler
     stop_keyboard_handler();
 
-    // Wait for the tick thread to terminate
-    let thread_handle = {
-        let mut tick_lock = tick_thread().lock().unwrap();
-        tick_lock.take()
-    };
-
     let gui_handle = {
         let mut gui_lock = gui_thread().lock().unwrap();
         gui_lock.take()
     };
 
-    if let Some(handle) = thread_handle {
-        // Give a short timeout for waiting
-        if let Err(e) = handle.join() {
-            error!("Error while waiting for tick thread: {:?}", e);
-        }
-    }
-
     if let Some(handle) = gui_handle {
         // Give a short timeout for waiting
         if let Err(e) = handle.join() {
-            error!("Error while waiting for tick thread: {:?}", e);
+            error!("Error while waiting for gui thread: {:?}", e);
         }
     }
 

@@ -103,6 +103,19 @@ impl Entity {
                 .l()?,
         )
     }
+
+    pub fn get_tick_count(&self) -> anyhow::Result<i32> {
+        let mapping = self.mapping();
+
+        Ok(mapping
+            .get_field(
+                MinecraftClassType::Entity,
+                self.jni_ref.as_obj(),
+                "tickCount",
+                FieldType::Int,
+            )?
+            .i()?)
+    }
 }
 
 impl Deref for Entity {
