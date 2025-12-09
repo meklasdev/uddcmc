@@ -91,7 +91,7 @@ pub fn install_hooks() -> anyhow::Result<()> {
              unsafe {
                 let lib = libloading::Library::new("opengl32.dll")?;
                 let func: libloading::Symbol<unsafe extern "system" fn()> = lib.get(b"wglSwapBuffers")?;
-                let target_addr = func.into_raw().into_raw() as usize;
+                let target_addr = *func as usize;
 
                 // ilhook usage with JmpBack
                 let hooker = Hooker::new(
@@ -103,7 +103,7 @@ pub fn install_hooks() -> anyhow::Result<()> {
                 );
 
                 let hook = hooker.hook();
-                let hook = hook.unwrap();
+                let hook = hook?;
 
                 Box::leak(Box::new(hook));
                 // Leak library to keep it loaded
