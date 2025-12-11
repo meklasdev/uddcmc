@@ -3,6 +3,11 @@
 // It finds the `jvm.lib` import library that is required to link JNI functions.
 // On Linux, this is unnecessary because the linker can directly use libjvm.so.
 
+use std::env;
+use std::fs::File;
+use std::path::Path;
+use gl_generator::{Api, Fallbacks, GlobalGenerator, Profile, Registry};
+
 #[cfg(windows)]
 fn main() {
     use std::path::PathBuf;
@@ -70,7 +75,13 @@ fn main() {
 
 #[cfg(not(windows))]
 fn main() {
-    // On non-Windows systems this build script does nothing.
+    let dest = env::var("OUT_DIR").unwrap();
+    let mut file = File::create(&Path::new(&dest).join("bindings.rs")).unwrap();
+
+    // Qui chiediamo il profilo "Compatibility" che include glBegin, glEnd, etc.
+    Registry::new(Api::Gl, (2, 1), Profile::Compatibility, Fallbacks::All, [])
+        .write_bindings(GlobalGenerator, &mut file)
+        .unwrap();
 }
 
 #[cfg(windows)]

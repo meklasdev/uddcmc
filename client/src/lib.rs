@@ -7,6 +7,10 @@ mod hook;
 mod mapping;
 mod module;
 
+pub mod gl {
+    include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+}
+
 use crate::client::keyboard::{start_keyboard_handler, stop_keyboard_handler};
 use crate::client::DarkClient;
 use crate::gui::start_gui;
@@ -21,11 +25,12 @@ use std::fs::File;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
+use crate::hook::uninstall_hooks;
 
 static GUI_THREAD: OnceLock<Mutex<Option<thread::JoinHandle<()>>>> = OnceLock::new();
 
 // Flag to control if the client is running
-static RUNNING: AtomicBool = AtomicBool::new(false);
+pub static RUNNING: AtomicBool = AtomicBool::new(false);
 
 fn gui_thread() -> &'static Mutex<Option<thread::JoinHandle<()>>> {
     GUI_THREAD.get_or_init(|| Mutex::new(None))
@@ -85,6 +90,9 @@ pub extern "C" fn cleanup_client() {
 
     // Set the execution flag to false
     RUNNING.store(false, Ordering::SeqCst);
+
+    // RIMUOVI FISICAMENTE L'HOOK
+    uninstall_hooks();
 
     // Stop the keyboard handler
     stop_keyboard_handler();
