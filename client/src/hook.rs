@@ -37,7 +37,12 @@ fn check_tick() {
 
     let minecraft = Minecraft::instance();
 
-    let tick_count = match minecraft.player.entity.get_tick_count() {
+    let player = match minecraft.get_player() {
+        Ok(p) => p,
+        Err(_) => return,
+    };
+
+    let tick_count = match player.entity.get_tick_count() {
         Ok(t) => t,
         Err(_) => return,
     };

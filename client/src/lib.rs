@@ -71,10 +71,14 @@ pub extern "C" fn initialize_client() {
         let mut gui_lock = gui_thread().lock().unwrap();
         *gui_lock = Some(gui_handle);
 
-        info!(
-            "Player position: {:?}",
-            minecraft.player.entity.get_position()
-        );
+        match minecraft.get_player() {
+            Ok(player) => {
+                if let Ok(pos) = player.entity.get_position() {
+                    info!("Initial Player position: {:?}", pos);
+                }
+            }
+            Err(_) => info!("Client initialized, but player is not in-world yet."),
+        }
     });
 }
 
@@ -108,7 +112,7 @@ pub extern "C" fn cleanup_client() {
 fn register_modules(minecraft: &'static Minecraft) {
     let client = DarkClient::instance();
 
-    client.register_module(FlyModule::new(minecraft.player.clone()));
+    client.register_module(FlyModule::new());
     client.register_module(KillAuraModule::new());
     client.register_module(MobAuraModule::new());
     client.register_module(AimbotModule::new());

@@ -22,7 +22,6 @@ impl BaseAura {
                 category: ModuleCategory::COMBAT,
                 key_bind,
                 enabled: false,
-                player: Minecraft::instance().player.clone(),
                 settings: vec![ModuleSetting::Slider {
                     name: "Range".to_string(),
                     value: 4.0,
@@ -53,7 +52,7 @@ impl Module for BaseAura {
 
     fn on_tick(&self) -> anyhow::Result<()> {
         let minecraft = Minecraft::instance();
-        let player = &minecraft.player;
+        let player = &minecraft.get_player()?;
         let world = &minecraft.world;
         let game_mode = &minecraft.game_mode;
         let mapping = minecraft.mapping();
