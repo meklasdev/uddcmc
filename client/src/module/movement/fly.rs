@@ -1,3 +1,4 @@
+use crate::mapping::client::minecraft::Minecraft;
 use crate::mapping::entity::player::LocalPlayer;
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleSetting};
 
@@ -7,7 +8,7 @@ pub struct FlyModule {
 }
 
 impl FlyModule {
-    pub fn new(player: LocalPlayer) -> Self {
+    pub fn new() -> Self {
         Self {
             module: ModuleData {
                 name: "Fly".to_string(),
@@ -15,7 +16,6 @@ impl FlyModule {
                 category: ModuleCategory::MOVEMENT,
                 key_bind: KeyboardKey::KeyF,
                 enabled: false,
-                player,
                 settings: vec![ModuleSetting::Slider {
                     name: "Speed".to_string(),
                     value: 1.0,
@@ -37,12 +37,12 @@ impl FlyModule {
 impl Module for FlyModule {
     fn on_start(&self) -> anyhow::Result<()> {
         // Enables flying
-        self.module.player.abilities.fly(true)
+        Minecraft::instance().get_player()?.abilities.fly(true)
     }
 
     fn on_stop(&self) -> anyhow::Result<()> {
         // Disables flying
-        self.module.player.abilities.fly(false)
+        Minecraft::instance().get_player()?.abilities.fly(false)
     }
 
     fn on_tick(&self) -> anyhow::Result<()> {
