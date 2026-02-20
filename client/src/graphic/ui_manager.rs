@@ -1,6 +1,7 @@
 use crate::client::DarkClient;
+use crate::graphic::color::Rgba;
 use crate::graphic::input::{GUI_OPEN, MOUSE_STATE};
-use crate::graphic::ui::{GUI_MODULE_HEIGHT, GUI_PADDING, GUI_SETTING_HEIGHT, GUI_TITLE_HEIGHT};
+use crate::graphic::widget::{Button, HudWidget, ModuleButton, Widget, Window};
 use crate::module::ModuleCategory;
 use std::sync::Mutex;
 
@@ -8,33 +9,11 @@ lazy_static::lazy_static! {
     pub static ref UI_MANAGER: Mutex<UiManager> = Mutex::new(UiManager::new());
 }
 
-pub struct ModuleUiState {
-    pub name: String,
-    pub is_expanded: bool,
-    pub expand_anim: f32, // 0.0 to 1.0
-}
-
-pub struct WindowState {
-    pub title: String,
-    pub category: ModuleCategory,
-    pub x: f32,
-    pub y: f32,
-    pub render_x: f32,
-    pub render_y: f32,
-    pub vel_x: f32,
-    pub vel_y: f32,
-    pub width: f32,
-    pub height: f32,
-    pub is_dragging: bool,
-    pub drag_offset_x: f32,
-    pub drag_offset_y: f32,
-    pub scroll_y: f32,
-    pub scroll_vel: f32,
-    pub modules: Vec<ModuleUiState>,
-}
-
 pub struct UiManager {
-    pub windows: Vec<WindowState>,
+    pub windows: Vec<Widget>,
+    pub reset_btn: Button,
+    pub panic_btn: Button,
+    pub hud_overlay: HudWidget,
     pub background_alpha: f32,
     pub is_visible: bool,
     pub initialized_layout: bool,
@@ -42,101 +21,63 @@ pub struct UiManager {
 
 impl UiManager {
     pub fn new() -> Self {
+        let combat_win = Window::new(
+            50.0,
+            50.0,
+            160.0,
+            20.0,
+            ModuleCategory::COMBAT.display_name(),
+        );
+        let move_win = Window::new(
+            230.0,
+            50.0,
+            160.0,
+            20.0,
+            ModuleCategory::MOVEMENT.display_name(),
+        );
+        let render_win = Window::new(
+            410.0,
+            50.0,
+            160.0,
+            20.0,
+            ModuleCategory::RENDER.display_name(),
+        );
+        let player_win = Window::new(
+            590.0,
+            50.0,
+            160.0,
+            20.0,
+            ModuleCategory::PLAYER.display_name(),
+        );
+        let world_win = Window::new(
+            770.0,
+            50.0,
+            160.0,
+            20.0,
+            ModuleCategory::WORLD.display_name(),
+        );
+
+        let reset_btn = Button::new(0.0, 0.0, 60.0, 20.0, "Reset UI")
+            .with_bg_color(Rgba::new_rgb(0.2, 0.2, 0.2, 0.8))
+            .with_text_color(Rgba::new_rgb(1.0, 1.0, 1.0, 1.0));
+
+        let panic_btn = Button::new(0.0, 0.0, 60.0, 20.0, "PANIC")
+            .with_bg_color(Rgba::new_rgb(0.8, 0.2, 0.2, 0.8))
+            .with_text_color(Rgba::new_rgb(1.0, 1.0, 1.0, 1.0));
+
         let manager = Self {
             background_alpha: 0.0,
             is_visible: false,
             initialized_layout: false,
+            hud_overlay: HudWidget::new(),
+            reset_btn,
+            panic_btn,
             windows: vec![
-                WindowState {
-                    title: ModuleCategory::COMBAT.display_name().to_string(),
-                    category: ModuleCategory::COMBAT,
-                    x: 50.0,
-                    y: 50.0,
-                    render_x: 50.0,
-                    render_y: 50.0,
-                    vel_x: 0.0,
-                    vel_y: 0.0,
-                    width: 160.0,
-                    height: 200.0,
-                    is_dragging: false,
-                    drag_offset_x: 0.0,
-                    drag_offset_y: 0.0,
-                    scroll_y: 0.0,
-                    scroll_vel: 0.0,
-                    modules: vec![],
-                },
-                WindowState {
-                    title: ModuleCategory::MOVEMENT.display_name().to_string(),
-                    category: ModuleCategory::MOVEMENT,
-                    x: 230.0,
-                    y: 50.0,
-                    render_x: 230.0,
-                    render_y: 50.0,
-                    vel_x: 0.0,
-                    vel_y: 0.0,
-                    width: 160.0,
-                    height: 200.0,
-                    is_dragging: false,
-                    drag_offset_x: 0.0,
-                    drag_offset_y: 0.0,
-                    scroll_y: 0.0,
-                    scroll_vel: 0.0,
-                    modules: vec![],
-                },
-                WindowState {
-                    title: ModuleCategory::RENDER.display_name().to_string(),
-                    category: ModuleCategory::RENDER,
-                    x: 410.0,
-                    y: 50.0,
-                    render_x: 410.0,
-                    render_y: 50.0,
-                    vel_x: 0.0,
-                    vel_y: 0.0,
-                    width: 160.0,
-                    height: 200.0,
-                    is_dragging: false,
-                    drag_offset_x: 0.0,
-                    drag_offset_y: 0.0,
-                    scroll_y: 0.0,
-                    scroll_vel: 0.0,
-                    modules: vec![],
-                },
-                WindowState {
-                    title: ModuleCategory::PLAYER.display_name().to_string(),
-                    category: ModuleCategory::PLAYER,
-                    x: 590.0,
-                    y: 50.0,
-                    render_x: 590.0,
-                    render_y: 50.0,
-                    vel_x: 0.0,
-                    vel_y: 0.0,
-                    width: 160.0,
-                    height: 200.0,
-                    is_dragging: false,
-                    drag_offset_x: 0.0,
-                    drag_offset_y: 0.0,
-                    scroll_y: 0.0,
-                    scroll_vel: 0.0,
-                    modules: vec![],
-                },
-                WindowState {
-                    title: ModuleCategory::WORLD.display_name().to_string(),
-                    category: ModuleCategory::WORLD,
-                    x: 770.0,
-                    y: 50.0,
-                    render_x: 770.0,
-                    render_y: 50.0,
-                    vel_x: 0.0,
-                    vel_y: 0.0,
-                    width: 160.0,
-                    height: 200.0,
-                    is_dragging: false,
-                    drag_offset_x: 0.0,
-                    drag_offset_y: 0.0,
-                    scroll_y: 0.0,
-                    scroll_vel: 0.0,
-                    modules: vec![],
-                },
+                Widget::Window(combat_win),
+                Widget::Window(move_win),
+                Widget::Window(render_win),
+                Widget::Window(player_win),
+                Widget::Window(world_win),
             ],
         };
         manager
@@ -156,27 +97,77 @@ impl UiManager {
         let mut current_y = start_y;
         let mut row_max_height = 0.0_f32;
 
-        for window in &mut self.windows {
-            if current_x + window.width > screen_w && current_x > start_x {
-                // Wrap to next line
-                current_x = start_x;
-                current_y += row_max_height + gap_y;
-                row_max_height = 0.0;
-            }
+        for w_widget in &mut self.windows {
+            if let Widget::Window(window) = w_widget {
+                let mut calc_h = 25.0;
+                for child in &window.children {
+                    match child {
+                        Widget::Button(b) => calc_h += b.h + 2.0,
+                        Widget::Label(_) => calc_h += 16.0,
+                        Widget::ModuleButton(m) => calc_h += m.h + 2.0,
+                        _ => {}
+                    }
+                }
 
-            window.x = current_x;
-            window.y = current_y;
-            window.render_x = current_x;
-            window.render_y = current_y;
+                if current_x + window.w > screen_w && current_x > start_x {
+                    // Wrap to next line
+                    current_x = start_x;
+                    current_y += row_max_height + gap_y;
+                    row_max_height = 0.0;
+                }
 
-            current_x += window.width + gap_x;
-            if window.height > row_max_height {
-                row_max_height = window.height;
+                window.x = current_x;
+                window.y = current_y;
+                window.render_x = current_x;
+                window.render_y = current_y;
+
+                current_x += window.w + gap_x;
+                if calc_h > row_max_height {
+                    row_max_height = calc_h;
+                }
             }
         }
     }
 
     pub fn update(&mut self, scale_f: f32, screen_w: f32, screen_h: f32) {
+        // Sync real modules from DarkClient if empty (only triggers once)
+        for w_widget in &mut self.windows {
+            if let Widget::Window(window) = w_widget {
+                if window.children.is_empty() {
+                    let client_modules_guard = DarkClient::instance().modules.read().unwrap();
+                    let target_category = match window.title.as_str() {
+                        "Combat" => ModuleCategory::COMBAT,
+                        "Movement" => ModuleCategory::MOVEMENT,
+                        "Render" => ModuleCategory::RENDER,
+                        "Player" => ModuleCategory::PLAYER,
+                        "World" => ModuleCategory::WORLD,
+                        _ => ModuleCategory::COMBAT,
+                    };
+
+                    let mut valid_modules: Vec<_> = client_modules_guard
+                        .values()
+                        .filter(|m| m.lock().unwrap().get_module_data().category == target_category)
+                        .collect();
+
+                    valid_modules.sort_by(|a, b| {
+                        a.lock()
+                            .unwrap()
+                            .get_module_data()
+                            .name
+                            .cmp(&b.lock().unwrap().get_module_data().name)
+                    });
+
+                    window.children = valid_modules
+                        .into_iter()
+                        .map(|m| {
+                            let name = m.lock().unwrap().get_module_data().name.clone();
+                            Widget::ModuleButton(ModuleButton::new(&name))
+                        })
+                        .collect();
+                }
+            }
+        }
+
         if !self.initialized_layout {
             self.auto_wrap_windows(screen_w, screen_h);
             self.initialized_layout = true;
@@ -202,63 +193,30 @@ impl UiManager {
             return;
         }
 
-        // Sync real modules from DarkClient if empty
-        let client_modules_guard = DarkClient::instance().modules.read().unwrap();
-        for window in &mut self.windows {
-            if window.modules.is_empty() {
-                let mut valid_modules: Vec<_> = client_modules_guard
-                    .values()
-                    .filter(|m| m.lock().unwrap().get_module_data().category == window.category)
-                    .collect();
-
-                valid_modules.sort_by(|a, b| {
-                    a.lock()
-                        .unwrap()
-                        .get_module_data()
-                        .name
-                        .cmp(&b.lock().unwrap().get_module_data().name)
-                });
-
-                window.modules = valid_modules
-                    .into_iter()
-                    .map(|m| ModuleUiState {
-                        name: m.lock().unwrap().get_module_data().name.clone(),
-                        is_expanded: false,
-                        expand_anim: 0.0,
-                    })
-                    .collect();
+        // Handle interactions & logic updates
+        let (mx, my, left_clicked, right_clicked, left_down) = {
+            if let Ok(mut mouse) = MOUSE_STATE.lock() {
+                let l = mouse.left_clicked;
+                let r = mouse.right_clicked;
+                let ld = mouse.left_down;
+                mouse.left_clicked = false;
+                mouse.right_clicked = false;
+                (mouse.x as f32, mouse.y as f32, l, r, ld)
+            } else {
+                (0.0, 0.0, false, false, false)
             }
+        };
 
-            // Animate expansions
-            for m_state in &mut window.modules {
-                if m_state.is_expanded {
-                    if m_state.expand_anim < 1.0 {
-                        m_state.expand_anim += 0.1;
-                    }
-                } else {
-                    if m_state.expand_anim > 0.0 {
-                        m_state.expand_anim -= 0.1;
-                    }
-                }
-                m_state.expand_anim = m_state.expand_anim.clamp(0.0, 1.0);
-            }
-        }
+        // Delegate clicks
+        if left_clicked || right_clicked {
+            let mut clicked_idx = None;
+            for (i, widget) in self.windows.iter_mut().enumerate().rev() {
+                if let Widget::Window(win) = widget {
+                    let scaled_x = win.render_x * scale_f;
+                    let scaled_y = win.render_y * scale_f;
+                    let scaled_w = win.w * scale_f;
+                    let scaled_h = win.h * scale_f;
 
-        // Handle Mouse state
-        if let Ok(mouse) = MOUSE_STATE.lock() {
-            let mx = mouse.x as f32;
-            let my = mouse.y as f32;
-
-            // --- Click & Bring to Front logic ---
-            if mouse.left_clicked {
-                let mut clicked_idx = None;
-                for (i, window) in self.windows.iter_mut().enumerate().rev() {
-                    let scaled_x = window.render_x * scale_f;
-                    let scaled_y = window.render_y * scale_f;
-                    let scaled_w = window.width * scale_f;
-                    let scaled_h = window.height * scale_f;
-
-                    // Did we click inside the full window bounds?
                     if mx >= scaled_x
                         && mx <= scaled_x + scaled_w
                         && my >= scaled_y
@@ -268,76 +226,55 @@ impl UiManager {
                         break;
                     }
                 }
-
-                if let Some(idx) = clicked_idx {
-                    let mut win = self.windows.remove(idx);
-                    let scaled_x = win.render_x * scale_f;
-                    let scaled_y = win.render_y * scale_f;
-                    let title_height = GUI_TITLE_HEIGHT * scale_f;
-
-                    // Check if clicked exactly on the title bar for dragging
-                    if my <= scaled_y + title_height {
-                        win.is_dragging = true;
-                        win.drag_offset_x = (mx - scaled_x) / scale_f;
-                        win.drag_offset_y = (my - scaled_y) / scale_f;
-                    }
-                    self.windows.push(win);
-                }
             }
 
-            for window in &mut self.windows {
-                if !mouse.left_down {
-                    window.is_dragging = false;
-                }
+            if let Some(idx) = clicked_idx {
+                let mut top_win = self.windows.remove(idx);
+                top_win.handle_click(mx, my, left_clicked, right_clicked, scale_f);
+                self.windows.push(top_win);
+            }
+        }
 
-                if window.is_dragging {
-                    window.x = (mx / scale_f) - window.drag_offset_x;
-                    window.y = (my / scale_f) - window.drag_offset_y;
+        // Delegate updates
+        for widget in &mut self.windows {
+            widget.update(mx, my, left_down, scale_f);
+        }
 
-                    // Clamp dragging within screen bounds
-                    window.x = window.x.clamp(0.0, (screen_w / scale_f) - window.width);
-                    window.y = window.y.clamp(0.0, (screen_h / scale_f) - GUI_TITLE_HEIGHT);
-                }
+        // Layout Context Buttons
+        let btn_w = 60.0;
+        let btn_h = 20.0;
+        let btn_pad = 10.0;
 
-                // Spring Physics
-                let stiffness = 0.25; // How strongly it pulls towards target
-                let damping = 0.65; // Defines jelly bounce vs snap (lower = more bouncy)
+        self.reset_btn.x = (screen_w / scale_f) - btn_w - btn_pad;
+        self.reset_btn.y = btn_pad;
+        self.reset_btn.w = btn_w;
+        self.reset_btn.h = btn_h;
 
-                let fx = (window.x - window.render_x) * stiffness;
-                let fy = (window.y - window.render_y) * stiffness;
+        self.panic_btn.x = self.reset_btn.x - btn_w - btn_pad;
+        self.panic_btn.y = btn_pad;
+        self.panic_btn.w = btn_w;
+        self.panic_btn.h = btn_h;
 
-                window.vel_x = (window.vel_x + fx) * damping;
-                window.vel_y = (window.vel_y + fy) * damping;
+        // Apply alpha to context buttons dynamically
+        let shared_alpha = self.background_alpha.min(0.8);
+        self.reset_btn.bg_color.a = shared_alpha;
+        self.panic_btn.bg_color.a = shared_alpha;
 
-                window.render_x += window.vel_x;
-                window.render_y += window.vel_y;
+        self.reset_btn.update(mx, my, left_down, scale_f);
+        self.panic_btn.update(mx, my, left_down, scale_f);
 
-                // Dynamic window height expansion
-                let mut target_h = GUI_TITLE_HEIGHT + GUI_PADDING; // Title bar + padding
-                for m_state in &window.modules {
-                    target_h += GUI_MODULE_HEIGHT; // Base module height
-
-                    if m_state.expand_anim > 0.01 {
-                        if let Some(m) = client_modules_guard.get(&m_state.name) {
-                            let lock = m.lock().unwrap();
-                            let settings_count = lock.get_module_data().settings.len() as f32;
-                            let expanded_h = settings_count * GUI_SETTING_HEIGHT;
-                            target_h += m_state.expand_anim * expanded_h;
-                        }
-                    }
-                    target_h += 2.0; // Gap between modules
-                }
-                target_h += GUI_PADDING; // Bottom padding
-
-                // Max limits and scrolling
-                let max_h = 300.0; // Cap to arbitrary viewport size before scrolling
-                if target_h > max_h {
-                    target_h = max_h;
-                    // todo scrolling bounds
-                }
-
-                // Lerp window height
-                window.height += (target_h - window.height) * 0.25;
+        if left_clicked {
+            if self
+                .reset_btn
+                .handle_click(mx, my, left_clicked, right_clicked, scale_f)
+            {
+                self.reset_ui(screen_w, screen_h);
+            }
+            if self
+                .panic_btn
+                .handle_click(mx, my, left_clicked, right_clicked, scale_f)
+            {
+                std::thread::spawn(|| crate::gui::call_panic());
             }
         }
     }

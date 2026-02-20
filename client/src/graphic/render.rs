@@ -1,4 +1,7 @@
-use crate::gl;
+use crate::{
+    gl,
+    graphic::color::{Rgb, Rgba},
+};
 use std::ffi::CString;
 
 static mut SHADER_PROGRAM: u32 = 0;
@@ -114,7 +117,7 @@ pub struct Renderer {
     old_depth_test: bool,
     old_cull_face: bool,
     old_scissor_test: bool,
-    current_color: (f32, f32, f32, f32),
+    current_color: Rgba,
 }
 
 impl Renderer {
@@ -175,12 +178,12 @@ impl Renderer {
             old_depth_test,
             old_cull_face,
             old_scissor_test,
-            current_color: (1.0, 1.0, 1.0, 1.0),
+            current_color: Rgba::new(Rgb::new(1.0, 1.0, 1.0), 1.0),
         }
     }
 
-    pub unsafe fn set_color(&mut self, r: f32, g: f32, b: f32, a: f32) {
-        self.current_color = (r, g, b, a);
+    pub unsafe fn set_color(&mut self, rgba: Rgba) {
+        self.current_color = rgba;
     }
 
     pub unsafe fn draw_rect(&mut self, x: i32, y: i32, w: i32, h: i32) {
@@ -213,10 +216,10 @@ impl Renderer {
         if color_loc >= 0 {
             gl::Uniform4f(
                 color_loc,
-                self.current_color.0,
-                self.current_color.1,
-                self.current_color.2,
-                self.current_color.3,
+                self.current_color.r,
+                self.current_color.g,
+                self.current_color.b,
+                self.current_color.a,
             );
         }
 
@@ -281,10 +284,10 @@ impl Renderer {
         if color_loc >= 0 {
             gl::Uniform4f(
                 color_loc,
-                self.current_color.0,
-                self.current_color.1,
-                self.current_color.2,
-                self.current_color.3,
+                self.current_color.r,
+                self.current_color.g,
+                self.current_color.b,
+                self.current_color.a,
             );
         }
 

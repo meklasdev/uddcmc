@@ -1,4 +1,4 @@
-use crate::graphic::render::Renderer;
+use crate::graphic::{color::Rgba, render::Renderer};
 
 /// A simple 5x7 bitmap font for ASCII characters 32 to 127.
 /// Each byte represents a column of the character (5 columns per character).
@@ -108,13 +108,10 @@ pub unsafe fn draw_text(
     text: &str,
     start_x: i32,
     start_y: i32,
-    r: f32,
-    g: f32,
-    b: f32,
-    a: f32,
+    rgba: Rgba,
     scale: i32,
 ) {
-    renderer.set_color(r, g, b, a);
+    renderer.set_color(rgba);
 
     let char_width = 5 * scale;
     let char_space = scale;
