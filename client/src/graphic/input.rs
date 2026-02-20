@@ -158,6 +158,36 @@ mod linux_input {
             return;
         }
 
+        // --- Module Toggling ---
+        // Only trigger on action == 1 (GLFW_PRESS) to prevent duplicates or release triggers
+        if action == 1 {
+            let minecraft = crate::mapping::client::minecraft::Minecraft::instance();
+            if minecraft.current_screen_is_null() && minecraft.get_player().is_ok() {
+                let client = crate::client::DarkClient::instance();
+                if let Ok(modules) = client.modules.read() {
+                    for module in modules.values() {
+                        let mut module = module.lock().unwrap();
+                        let module_data = module.get_module_data();
+
+                        if module_data.key_bind as i32 == key {
+                            let enabled = !module_data.enabled;
+                            log::info!(
+                                "{} {}",
+                                module_data.name,
+                                if enabled { "enabled" } else { "disabled" }
+                            );
+                            if enabled {
+                                let _ = module.on_start();
+                            } else {
+                                let _ = module.on_stop();
+                            }
+                            module.get_module_data_mut().set_enabled(enabled);
+                        }
+                    }
+                }
+            }
+        }
+
         unsafe {
             if !ORIGINAL_KEY_CB.is_null() {
                 let orig: GlfwKeyFun = std::mem::transmute(ORIGINAL_KEY_CB);
@@ -393,6 +423,36 @@ mod windows_input {
         if GUI_OPEN.load(Ordering::Relaxed) {
             return;
         }
+
+        // --- Module Toggling ---
+        if action == 1 {
+            let minecraft = crate::mapping::client::minecraft::Minecraft::instance();
+            if minecraft.current_screen_is_null() && minecraft.get_player().is_ok() {
+                let client = crate::client::DarkClient::instance();
+                if let Ok(modules) = client.modules.read() {
+                    for module in modules.values() {
+                        let mut module = module.lock().unwrap();
+                        let module_data = module.get_module_data();
+
+                        if module_data.key_bind as i32 == key {
+                            let enabled = !module_data.enabled;
+                            log::info!(
+                                "{} {}",
+                                module_data.name,
+                                if enabled { "enabled" } else { "disabled" }
+                            );
+                            if enabled {
+                                let _ = module.on_start();
+                            } else {
+                                let _ = module.on_stop();
+                            }
+                            module.get_module_data_mut().set_enabled(enabled);
+                        }
+                    }
+                }
+            }
+        }
+
         unsafe {
             if !ORIGINAL_KEY_CB.is_null() {
                 let orig: GlfwKeyFun = std::mem::transmute(ORIGINAL_KEY_CB);

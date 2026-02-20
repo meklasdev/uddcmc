@@ -125,6 +125,13 @@ unsafe fn render_overlay() {
         return;
     }
 
+    if crate::mapping::client::minecraft::Minecraft::instance()
+        .get_player()
+        .is_err()
+    {
+        return;
+    }
+
     // Initialize inputs when we are on the valid OpenGL thread context
     crate::graphic::input::init();
 

@@ -4,6 +4,23 @@ use crate::graphic::input::MOUSE_STATE;
 use crate::graphic::render::Renderer;
 use crate::graphic::ui_manager::UI_MANAGER;
 
+// --- GUI CONFIGURATION CONSTANTS ---
+pub const GUI_TITLE_HEIGHT: f32 = 20.0;
+pub const GUI_MODULE_HEIGHT: f32 = 16.0;
+pub const GUI_SETTING_HEIGHT: f32 = 14.0;
+pub const GUI_PADDING: f32 = 5.0;
+pub const GUI_MAX_STRETCH: f32 = 30.0;
+
+// Text Scales
+pub const TEXT_SCALE_HUD_WATERMARK: f32 = 2.0;
+pub const TEXT_SCALE_HUD_MODULES: f32 = 1.4;
+
+// Layout spacing
+pub const HUD_PADDING_Y: f32 = 5.0;
+pub const HUD_PADDING_X: f32 = 5.0;
+pub const HUD_WATERMARK_MARGIN_BOTTOM: f32 = 24.0;
+pub const HUD_MODULES_SPACING: f32 = 16.0;
+
 /// Defines the colors and sizes for the custom DarkClient GUI.
 pub struct Theme {
     pub screen_bg: (f32, f32, f32, f32),
@@ -65,9 +82,9 @@ unsafe fn draw_hud(renderer: &mut Renderer, scale_f: f32) {
     let watermark = "DarkClient";
     let w_color = HudColor::Yellow.to_rgba();
 
-    let mut hud_y = 5.0 * scale_f;
-    let hud_x = 5.0 * scale_f;
-    let text_scale = (1.2 * scale_f) as i32;
+    let mut hud_y = HUD_PADDING_Y * scale_f;
+    let hud_x = HUD_PADDING_X * scale_f;
+    let text_scale = (TEXT_SCALE_HUD_WATERMARK * scale_f) as i32;
 
     draw_text(
         renderer,
@@ -81,7 +98,7 @@ unsafe fn draw_hud(renderer: &mut Renderer, scale_f: f32) {
         text_scale,
     );
 
-    hud_y += 18.0 * scale_f;
+    hud_y += HUD_WATERMARK_MARGIN_BOTTOM * scale_f;
 
     if let Ok(modules_map) = DarkClient::instance().modules.read() {
         let mut active_mods: Vec<String> = modules_map
@@ -120,9 +137,9 @@ unsafe fn draw_hud(renderer: &mut Renderer, scale_f: f32) {
                 color.1,
                 color.2,
                 color.3,
-                scale_f as i32,
+                (TEXT_SCALE_HUD_MODULES * scale_f) as i32,
             );
-            hud_y += 14.0 * scale_f;
+            hud_y += HUD_MODULES_SPACING * scale_f;
         }
     }
 }
@@ -140,7 +157,7 @@ pub fn render_gui(renderer: &mut Renderer) {
     let base_scale = (screen_h as f32 / 720.0).max(1.0).floor() as i32;
     let scale_f = base_scale as f32;
 
-    ui.update(scale_f);
+    ui.update(scale_f, screen_w as f32, screen_h as f32);
 
     unsafe {
         draw_hud(renderer, scale_f);
@@ -161,36 +178,49 @@ pub fn render_gui(renderer: &mut Renderer) {
             theme.screen_bg.2,
             alpha,
         );
-        renderer.draw_rect(0, 0, screen_w, screen_h);
+        renderer.draw_rect(0, 0, screen_w as i32, screen_h as i32);
 
         // Retrieve mouse state for bounds interactions
-        let (mx, my, mut left_clicked, mut right_clicked) = {
-            if let Ok(mut mouse) = MOUSE_STATE.lock() {
-                let l = mouse.left_clicked;
-                let r = mouse.right_clicked;
-                mouse.left_clicked = false;
-                mouse.right_clicked = false;
-                (mouse.x as f32, mouse.y as f32, l, r)
-            } else {
-                (0.0, 0.0, false, false)
-            }
+        let (mx, my, left_clicked, right_clicked) = {
+            let m = MOUSE_STATE.lock().unwrap();
+            (m.x as f32, m.y as f32, m.left_clicked, m.right_clicked)
         };
 
-        // Render each window
-        for window in &mut ui.windows {
+        let windows_len = ui.windows.len();
+        for window_index in 0..windows_len {
             // Rigid Title Position
-            let wx = (window.x * scale_f) as f32;
-            let wy = (window.y * scale_f) as f32;
-            let ww = (window.width * scale_f) as f32;
-            let wh = (window.height * scale_f) as f32;
-            let title_h = 20.0 * scale_f;
+            let (wx, wy, ww, wh) = {
+                let window = &mut ui.windows[window_index];
+
+                let wx = (window.x * scale_f) as f32;
+                let wy = (window.y * scale_f) as f32;
+                let ww = (window.width * scale_f) as f32;
+                let wh = (window.height * scale_f) as f32;
+                (wx, wy, ww, wh)
+            };
+            let title_h = GUI_TITLE_HEIGHT * scale_f;
+
+            let mut is_topmost = true;
+            for i in (window_index + 1)..windows_len {
+                let higher_w = &ui.windows[i];
+                let hwx = higher_w.render_x * scale_f;
+                let hwy = higher_w.render_y * scale_f;
+                let hww = higher_w.width * scale_f;
+                let hwh = higher_w.height * scale_f;
+                if mx >= hwx && mx <= hwx + hww && my >= hwy && my <= hwy + hwh {
+                    is_topmost = false;
+                    break;
+                }
+            }
+
+            let window = &mut ui.windows[window_index];
 
             // Veil trailing offset
             let mut dx = (window.render_x - window.x) * scale_f;
             let mut dy = (window.render_y - window.y) * scale_f;
 
             // Cap the stretch visual effect
-            let max_stretch = 30.0 * scale_f;
+            let max_stretch = GUI_MAX_STRETCH * scale_f;
             dx = dx.clamp(-max_stretch, max_stretch);
             dy = dy.clamp(-max_stretch, max_stretch);
 
@@ -265,23 +295,29 @@ pub fn render_gui(renderer: &mut Renderer) {
             renderer.draw_quad(tl_x, tl_y, tr_x, tr_y, bl_x, bl_y, br_x, br_y);
 
             // Draw Modules inside Veil
-            let mut mod_y = body_top_y + (5.0 * scale_f);
+            let mut mod_y = body_top_y + (GUI_PADDING * scale_f);
             for module_state in &mut window.modules {
                 let module_name = &module_state.name;
-                let mod_act_h = 16.0 * scale_f; // base height
-                let mod_w = ww - (10.0 * scale_f);
-                let mod_x = wx + (5.0 * scale_f);
+                let mod_act_h = GUI_MODULE_HEIGHT * scale_f; // base height
+                let mod_w = ww - (GUI_PADDING * 2.0 * scale_f);
+                let mod_x = wx + (GUI_PADDING * scale_f);
 
                 let box_side = mod_act_h;
                 let box_x = mod_x + mod_w - box_side;
                 let box_y = mod_y;
 
                 // Check interactions
-                let is_hovering =
-                    mx >= mod_x && mx <= mod_x + mod_w && my >= mod_y && my <= mod_y + mod_act_h;
+                let is_hovering = is_topmost
+                    && mx >= mod_x
+                    && mx <= mod_x + mod_w
+                    && my >= mod_y
+                    && my <= mod_y + mod_act_h;
 
-                let is_box_hovering =
-                    mx >= box_x && mx <= box_x + box_side && my >= box_y && my <= box_y + box_side;
+                let is_box_hovering = is_topmost
+                    && mx >= box_x
+                    && mx <= box_x + box_side
+                    && my >= box_y
+                    && my <= box_y + box_side;
 
                 let mut is_enabled = false;
                 if let Some(m) = DarkClient::instance()
@@ -295,8 +331,6 @@ pub fn render_gui(renderer: &mut Renderer) {
 
                     if is_hovering {
                         if left_clicked {
-                            left_clicked = false;
-
                             if is_box_hovering {
                                 module_state.is_expanded = !module_state.is_expanded;
                             } else {
@@ -310,7 +344,6 @@ pub fn render_gui(renderer: &mut Renderer) {
                             }
                         }
                         if right_clicked {
-                            right_clicked = false;
                             module_state.is_expanded = !module_state.is_expanded;
                         }
                     }
@@ -460,7 +493,8 @@ pub fn render_gui(renderer: &mut Renderer) {
                             let actual_sx = set_x + t_dx;
                             let actual_sy = set_y + t_dy;
 
-                            let is_set_hovering = mx >= actual_sx
+                            let is_set_hovering = is_topmost
+                                && mx >= actual_sx
                                 && mx <= actual_sx + set_w
                                 && my >= actual_sy
                                 && my <= actual_sy + set_h;
@@ -471,7 +505,6 @@ pub fn render_gui(renderer: &mut Renderer) {
                                 crate::module::ModuleSetting::Toggle { name, value } => {
                                     if is_set_hovering && left_clicked {
                                         *value = !*value;
-                                        left_clicked = false;
                                     }
 
                                     let t_color = if *value {
@@ -557,7 +590,6 @@ pub fn render_gui(renderer: &mut Renderer) {
                                 } => {
                                     if is_set_hovering && left_clicked {
                                         *value = (*value + 1) % options.len();
-                                        left_clicked = false;
                                     }
                                     let current_opt = if *value < options.len() {
                                         &options[*value]
@@ -599,6 +631,75 @@ pub fn render_gui(renderer: &mut Renderer) {
 
                 mod_y += mod_total_visual_h + (2.0 * scale_f);
             }
+        }
+
+        // DRAW CONTEXT BUTTONS (Top Right)
+        let btn_w = 60.0 * scale_f;
+        let btn_h = 20.0 * scale_f;
+        let btn_pad = 10.0 * scale_f;
+
+        let reset_x = screen_w as f32 - btn_w - btn_pad;
+        let reset_y = btn_pad;
+        let panic_x = reset_x - btn_w - btn_pad;
+        let panic_y = btn_pad;
+
+        // Reset UI Button
+        renderer.set_color(
+            theme.module_bg.0,
+            theme.module_bg.1,
+            theme.module_bg.2,
+            ui.background_alpha.min(0.8),
+        );
+        renderer.draw_rect(reset_x as i32, reset_y as i32, btn_w as i32, btn_h as i32);
+        draw_text(
+            renderer,
+            "Reset UI",
+            (reset_x + 5.0 * scale_f) as i32,
+            (reset_y + 3.0 * scale_f) as i32,
+            theme.text_primary.0,
+            theme.text_primary.1,
+            theme.text_primary.2,
+            theme.text_primary.3,
+            base_scale,
+        );
+
+        // Panic Button
+        renderer.set_color(0.8, 0.2, 0.2, ui.background_alpha.min(0.8));
+        renderer.draw_rect(panic_x as i32, panic_y as i32, btn_w as i32, btn_h as i32);
+        draw_text(
+            renderer,
+            "PANIC",
+            (panic_x + 12.0 * scale_f) as i32,
+            (panic_y + 3.0 * scale_f) as i32,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            base_scale,
+        );
+
+        // Check clicks on buttons
+        let is_reset_hovering =
+            mx >= reset_x && mx <= reset_x + btn_w && my >= reset_y && my <= reset_y + btn_h;
+        let is_panic_hovering =
+            mx >= panic_x && mx <= panic_x + btn_w && my >= panic_y && my <= panic_y + btn_h;
+
+        if left_clicked {
+            if is_reset_hovering {
+                ui.reset_ui(screen_w as f32, screen_h as f32);
+            } else if is_panic_hovering {
+                std::thread::spawn(|| crate::gui::call_panic());
+            }
+        }
+    }
+
+    // Consume clicks globally at end of frame
+    if let Ok(mut mouse) = MOUSE_STATE.lock() {
+        if mouse.left_clicked {
+            mouse.left_clicked = false;
+        }
+        if mouse.right_clicked {
+            mouse.right_clicked = false;
         }
     }
 }

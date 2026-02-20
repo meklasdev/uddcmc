@@ -15,6 +15,7 @@ pub enum MinecraftClassType {
     Iterable,
     Iterator,
     Mob,
+    Screen,
 }
 
 impl MinecraftClassType {
@@ -34,6 +35,7 @@ impl MinecraftClassType {
             MinecraftClassType::Iterable => "java/lang/Iterable",
             MinecraftClassType::Iterator => "java/util/Iterator",
             MinecraftClassType::Mob => "net/minecraft/world/entity/Mob",
+            MinecraftClassType::Screen => "net/minecraft/client/gui/screens/Screen",
         }
     }
 }
