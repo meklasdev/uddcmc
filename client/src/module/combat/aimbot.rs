@@ -19,7 +19,6 @@ impl AimbotModule {
                 category: ModuleCategory::COMBAT,
                 key_bind: KeyboardKey::KeyC,
                 enabled: false,
-                player: Minecraft::instance().player.clone(),
                 settings: vec![ModuleSetting::Slider {
                     name: "Range".to_string(),
                     value: 4.0,
@@ -49,7 +48,7 @@ impl Module for AimbotModule {
 
     fn on_tick(&self) -> anyhow::Result<()> {
         let minecraft = Minecraft::instance();
-        let player = &minecraft.player;
+        let player = &minecraft.get_player()?;
         let world = &minecraft.world;
 
         let entities = world.get_entities()?;

@@ -40,7 +40,6 @@ pub struct ModuleData {
     pub category: ModuleCategory,
     pub key_bind: KeyboardKey,
     pub enabled: bool,
-    pub player: LocalPlayer,
     pub settings: Vec<ModuleSetting>,
 }
 
