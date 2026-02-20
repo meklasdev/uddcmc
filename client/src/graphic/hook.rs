@@ -147,12 +147,12 @@ fn check_tick() {
 
     let minecraft = Minecraft::instance();
 
-    // Error check to avoid crashes
-    if minecraft.player.entity.is_null() {
-        return;
-    }
+    let player = match minecraft.get_player() {
+        Ok(p) => p,
+        Err(_) => return,
+    };
 
-    let tick_count = match minecraft.player.entity.get_tick_count() {
+    let tick_count = match player.entity.get_tick_count() {
         Ok(t) => t,
         Err(_) => return,
     };

@@ -66,7 +66,7 @@ pub extern "C" fn initialize_client() {
         info!("Starting DarkClient...");
         let minecraft = Minecraft::instance();
 
-        register_modules(minecraft);
+        register_modules();
 
         start_keyboard_handler();
 
@@ -128,7 +128,7 @@ pub extern "C" fn cleanup_client() {
     info!("Client cleanup completed");
 }
 
-fn register_modules(minecraft: &'static Minecraft) {
+fn register_modules() {
     let client = DarkClient::instance();
 
     client.register_module(FlyModule::new());
