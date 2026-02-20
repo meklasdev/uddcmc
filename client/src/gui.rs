@@ -3,9 +3,14 @@ use crate::module::{ModuleCategory, ModuleSetting};
 use crate::{cleanup_client, RUNNING};
 use eframe::Frame;
 use egui::{Context, ScrollArea, Ui};
+use std::cell::Cell;
 use std::sync::atomic::Ordering::Relaxed;
 #[cfg(target_os = "linux")]
 use winit::platform::x11::EventLoopBuilderExtX11;
+
+thread_local! {
+    pub static IS_EGUI_THREAD: Cell<bool> = Cell::new(false);
+}
 
 pub fn call_panic() {
     let client = DarkClient::instance();
@@ -68,6 +73,8 @@ impl Default for GUI {
 
 impl eframe::App for GUI {
     fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
+        crate::gui::IS_EGUI_THREAD.with(|f| f.set(true));
+
         ctx.request_repaint();
 
         if !RUNNING.load(Relaxed) {

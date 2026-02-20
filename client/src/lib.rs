@@ -2,8 +2,8 @@
 
 extern crate jni;
 mod client;
+mod graphic;
 mod gui;
-mod hook;
 mod mapping;
 mod module;
 
@@ -13,6 +13,7 @@ pub mod gl {
 
 use crate::client::keyboard::{start_keyboard_handler, stop_keyboard_handler};
 use crate::client::DarkClient;
+use crate::graphic::hook::{install_hooks, uninstall_hooks};
 use crate::gui::start_gui;
 use crate::mapping::client::minecraft::Minecraft;
 use crate::module::combat::mobaura::MobAuraModule;
@@ -25,7 +26,6 @@ use std::fs::File;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
-use crate::hook::uninstall_hooks;
 
 static GUI_THREAD: OnceLock<Mutex<Option<thread::JoinHandle<()>>>> = OnceLock::new();
 
@@ -54,6 +54,14 @@ pub extern "C" fn initialize_client() {
         Err(e) => eprintln!("Error during logger initialization: {:?}", e),
     }
 
+    // Set up a custom panic hook to guarantee we release mouse/keyboard hooks
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        error!("DarkClient Panicked! Attempting to unhook inputs...");
+        cleanup_client();
+        default_hook(panic_info);
+    }));
+
     thread::spawn(|| {
         info!("Starting DarkClient...");
         let minecraft = Minecraft::instance();
@@ -63,7 +71,7 @@ pub extern "C" fn initialize_client() {
         start_keyboard_handler();
 
         // Install hooks
-        if let Err(e) = hook::install_hooks() {
+        if let Err(e) = install_hooks() {
             error!("Failed to install hooks: {}", e);
         }
 
@@ -96,6 +104,9 @@ pub extern "C" fn cleanup_client() {
 
     // Stop the keyboard handler
     stop_keyboard_handler();
+
+    // Unlock GLFW Input / Restore callbacks if GUI was open
+    crate::graphic::input::cleanup();
 
     let gui_handle = {
         let mut gui_lock = gui_thread().lock().unwrap();
