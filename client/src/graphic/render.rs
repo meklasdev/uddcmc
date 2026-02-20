@@ -113,6 +113,7 @@ pub struct Renderer {
     old_vbo: i32,
     old_depth_test: bool,
     old_cull_face: bool,
+    old_scissor_test: bool,
     current_color: (f32, f32, f32, f32),
 }
 
@@ -147,6 +148,7 @@ impl Renderer {
 
         let old_depth_test = gl::IsEnabled(gl::DEPTH_TEST) == gl::TRUE;
         let old_cull_face = gl::IsEnabled(gl::CULL_FACE) == gl::TRUE;
+        let old_scissor_test = gl::IsEnabled(gl::SCISSOR_TEST) == gl::TRUE;
 
         // Apply our states
         gl::Enable(gl::BLEND);
@@ -172,6 +174,7 @@ impl Renderer {
             old_vbo,
             old_depth_test,
             old_cull_face,
+            old_scissor_test,
             current_color: (1.0, 1.0, 1.0, 1.0),
         }
     }
@@ -219,6 +222,16 @@ impl Renderer {
 
         // Draw as Triangle Strip (4 vertices make 2 triangles / 1 quad)
         gl::DrawArrays(gl::TRIANGLE_STRIP, 0, 4);
+    }
+
+    pub unsafe fn enable_scissor(&self, x: i32, y: i32, w: i32, h: i32) {
+        gl::Enable(gl::SCISSOR_TEST);
+        let bottom_y = self.screen_height - (y + h);
+        gl::Scissor(x, bottom_y, w, h);
+    }
+
+    pub unsafe fn disable_scissor(&self) {
+        gl::Disable(gl::SCISSOR_TEST);
     }
 
     pub unsafe fn draw_quad(
@@ -288,6 +301,11 @@ impl Drop for Renderer {
             }
             if self.old_cull_face {
                 gl::Enable(gl::CULL_FACE);
+            }
+            if !self.old_scissor_test {
+                gl::Disable(gl::SCISSOR_TEST);
+            } else {
+                gl::Enable(gl::SCISSOR_TEST);
             }
 
             if !self.is_blend_on {

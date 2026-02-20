@@ -1,4 +1,6 @@
+use crate::client::DarkClient;
 use crate::graphic::input::{GUI_OPEN, MOUSE_STATE};
+use crate::module::ModuleCategory;
 use lazy_static::lazy_static;
 use std::sync::Mutex;
 
@@ -6,8 +8,15 @@ lazy_static! {
     pub static ref UI_MANAGER: Mutex<UiManager> = Mutex::new(UiManager::new());
 }
 
+pub struct ModuleUiState {
+    pub name: String,
+    pub is_expanded: bool,
+    pub expand_anim: f32, // 0.0 to 1.0
+}
+
 pub struct WindowState {
     pub title: String,
+    pub category: ModuleCategory,
     pub x: f32,
     pub y: f32,
     pub render_x: f32,
@@ -19,7 +28,9 @@ pub struct WindowState {
     pub is_dragging: bool,
     pub drag_offset_x: f32,
     pub drag_offset_y: f32,
-    pub modules: Vec<String>,
+    pub scroll_y: f32,
+    pub scroll_vel: f32,
+    pub modules: Vec<ModuleUiState>,
 }
 
 pub struct UiManager {
@@ -35,49 +46,94 @@ impl UiManager {
             is_visible: false,
             windows: vec![
                 WindowState {
-                    title: "Combat".to_string(),
+                    title: ModuleCategory::COMBAT.display_name().to_string(),
+                    category: ModuleCategory::COMBAT,
                     x: 50.0,
                     y: 50.0,
                     render_x: 50.0,
                     render_y: 50.0,
                     vel_x: 0.0,
                     vel_y: 0.0,
-                    width: 120.0,
+                    width: 160.0,
                     height: 200.0,
                     is_dragging: false,
                     drag_offset_x: 0.0,
                     drag_offset_y: 0.0,
-                    modules: vec!["MobAura".to_string(), "Criticals".to_string()],
+                    scroll_y: 0.0,
+                    scroll_vel: 0.0,
+                    modules: vec![],
                 },
                 WindowState {
-                    title: "Movement".to_string(),
-                    x: 200.0,
+                    title: ModuleCategory::MOVEMENT.display_name().to_string(),
+                    category: ModuleCategory::MOVEMENT,
+                    x: 230.0,
                     y: 50.0,
-                    render_x: 200.0,
+                    render_x: 230.0,
                     render_y: 50.0,
                     vel_x: 0.0,
                     vel_y: 0.0,
-                    width: 120.0,
+                    width: 160.0,
                     height: 200.0,
                     is_dragging: false,
                     drag_offset_x: 0.0,
                     drag_offset_y: 0.0,
-                    modules: vec!["Sprint".to_string(), "Fly".to_string()],
+                    scroll_y: 0.0,
+                    scroll_vel: 0.0,
+                    modules: vec![],
                 },
                 WindowState {
-                    title: "Render".to_string(),
-                    x: 350.0,
+                    title: ModuleCategory::RENDER.display_name().to_string(),
+                    category: ModuleCategory::RENDER,
+                    x: 410.0,
                     y: 50.0,
-                    render_x: 350.0,
+                    render_x: 410.0,
                     render_y: 50.0,
                     vel_x: 0.0,
                     vel_y: 0.0,
-                    width: 120.0,
+                    width: 160.0,
                     height: 200.0,
                     is_dragging: false,
                     drag_offset_x: 0.0,
                     drag_offset_y: 0.0,
-                    modules: vec!["ESP".to_string(), "FullBright".to_string()],
+                    scroll_y: 0.0,
+                    scroll_vel: 0.0,
+                    modules: vec![],
+                },
+                WindowState {
+                    title: ModuleCategory::PLAYER.display_name().to_string(),
+                    category: ModuleCategory::PLAYER,
+                    x: 590.0,
+                    y: 50.0,
+                    render_x: 590.0,
+                    render_y: 50.0,
+                    vel_x: 0.0,
+                    vel_y: 0.0,
+                    width: 160.0,
+                    height: 200.0,
+                    is_dragging: false,
+                    drag_offset_x: 0.0,
+                    drag_offset_y: 0.0,
+                    scroll_y: 0.0,
+                    scroll_vel: 0.0,
+                    modules: vec![],
+                },
+                WindowState {
+                    title: ModuleCategory::WORLD.display_name().to_string(),
+                    category: ModuleCategory::WORLD,
+                    x: 770.0,
+                    y: 50.0,
+                    render_x: 770.0,
+                    render_y: 50.0,
+                    vel_x: 0.0,
+                    vel_y: 0.0,
+                    width: 160.0,
+                    height: 200.0,
+                    is_dragging: false,
+                    drag_offset_x: 0.0,
+                    drag_offset_y: 0.0,
+                    scroll_y: 0.0,
+                    scroll_vel: 0.0,
+                    modules: vec![],
                 },
             ],
         }
@@ -102,6 +158,48 @@ impl UiManager {
 
         if !self.is_visible {
             return;
+        }
+
+        // Sync real modules from DarkClient if empty
+        let client_modules_guard = DarkClient::instance().modules.read().unwrap();
+        for window in &mut self.windows {
+            if window.modules.is_empty() {
+                let mut valid_modules: Vec<_> = client_modules_guard
+                    .values()
+                    .filter(|m| m.lock().unwrap().get_module_data().category == window.category)
+                    .collect();
+
+                valid_modules.sort_by(|a, b| {
+                    a.lock()
+                        .unwrap()
+                        .get_module_data()
+                        .name
+                        .cmp(&b.lock().unwrap().get_module_data().name)
+                });
+
+                window.modules = valid_modules
+                    .into_iter()
+                    .map(|m| ModuleUiState {
+                        name: m.lock().unwrap().get_module_data().name.clone(),
+                        is_expanded: false,
+                        expand_anim: 0.0,
+                    })
+                    .collect();
+            }
+
+            // Animate expansions
+            for m_state in &mut window.modules {
+                if m_state.is_expanded {
+                    if m_state.expand_anim < 1.0 {
+                        m_state.expand_anim += 0.1;
+                    }
+                } else {
+                    if m_state.expand_anim > 0.0 {
+                        m_state.expand_anim -= 0.1;
+                    }
+                }
+                m_state.expand_anim = m_state.expand_anim.clamp(0.0, 1.0);
+            }
         }
 
         // Handle Mouse state
@@ -147,6 +245,33 @@ impl UiManager {
                 } else {
                     window.is_dragging = false;
                 }
+
+                // Dynamic window height expansion
+                let mut target_h = 20.0 + 5.0; // Title bar + padding
+                for m_state in &window.modules {
+                    target_h += 16.0; // Base module height
+
+                    if m_state.expand_anim > 0.01 {
+                        if let Some(m) = client_modules_guard.get(&m_state.name) {
+                            let lock = m.lock().unwrap();
+                            let settings_count = lock.get_module_data().settings.len() as f32;
+                            let expanded_h = settings_count * 14.0;
+                            target_h += m_state.expand_anim * expanded_h;
+                        }
+                    }
+                    target_h += 2.0; // Gap between modules
+                }
+                target_h += 5.0; // Bottom padding
+
+                // Max limits and scrolling
+                let max_h = 300.0; // Cap to arbitrary viewport size before scrolling
+                if target_h > max_h {
+                    target_h = max_h;
+                    // todo scrolling bounds
+                }
+
+                // Lerp window height
+                window.height += (target_h - window.height) * 0.25;
             }
         }
     }

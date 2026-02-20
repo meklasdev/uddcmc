@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 // Global Input State
-pub static GUI_OPEN: AtomicBool = AtomicBool::new(true);
+pub static GUI_OPEN: AtomicBool = AtomicBool::new(false);
 
 lazy_static::lazy_static! {
     pub static ref MOUSE_STATE: Mutex<MouseState> = Mutex::new(MouseState::default());
@@ -17,6 +17,8 @@ pub struct MouseState {
     pub y: f64,
     pub left_down: bool,
     pub right_down: bool,
+    pub left_clicked: bool,
+    pub right_clicked: bool,
 }
 
 #[cfg(target_os = "linux")]
@@ -31,6 +33,7 @@ mod linux_input {
 
     static mut GLFW_WINDOW: *mut c_void = std::ptr::null_mut();
     static mut GLFW_SET_INPUT_MODE: Option<extern "C" fn(*mut c_void, i32, i32)> = None;
+    static mut GLFW_SET_CURSOR_POS: Option<extern "C" fn(*mut c_void, f64, f64)> = None;
 
     // To prevent massive camera spins when un-grabbing
     static mut C_LOCK_X: f64 = 0.0;
@@ -53,11 +56,13 @@ mod linux_input {
                 // GLFW_MOUSE_BUTTON_LEFT
                 if let Ok(mut state) = MOUSE_STATE.lock() {
                     state.left_down = true;
+                    state.left_clicked = true;
                 }
             } else if button == 1 {
                 // GLFW_MOUSE_BUTTON_RIGHT
                 if let Ok(mut state) = MOUSE_STATE.lock() {
                     state.right_down = true;
+                    state.right_clicked = true;
                 }
             }
         } else if action == 0 {
@@ -139,6 +144,9 @@ mod linux_input {
                             set_mode(GLFW_WINDOW, 0x00033001, 0x00034001);
                         } else {
                             // GUI Closed -> Disabled / Captured Pointer
+                            if let Some(set_cursor_pos) = GLFW_SET_CURSOR_POS {
+                                set_cursor_pos(GLFW_WINDOW, C_LOCK_X, C_LOCK_Y);
+                            }
                             set_mode(GLFW_WINDOW, 0x00033001, 0x00034003);
                         }
                     }
@@ -196,6 +204,9 @@ mod linux_input {
                 let set_input_mode: extern "C" fn(*mut c_void, i32, i32) = std::mem::transmute(
                     libc::dlsym(libglfw, CString::new("glfwSetInputMode").unwrap().as_ptr()),
                 );
+                let set_cursor_pos_func: extern "C" fn(*mut c_void, f64, f64) = std::mem::transmute(
+                    libc::dlsym(libglfw, CString::new("glfwSetCursorPos").unwrap().as_ptr()),
+                );
 
                 let window = get_current_context();
                 if window.is_null() {
@@ -213,6 +224,7 @@ mod linux_input {
                 // Store globally so we can toggle grab state later
                 GLFW_WINDOW = window;
                 GLFW_SET_INPUT_MODE = Some(set_input_mode);
+                GLFW_SET_CURSOR_POS = Some(set_cursor_pos_func);
 
                 // Assuming GUI is open by default: ungrab mouse right away
                 if GUI_OPEN.load(Ordering::Relaxed) {
@@ -276,6 +288,7 @@ mod windows_input {
 
     static mut GLFW_WINDOW: *mut c_void = std::ptr::null_mut();
     static mut GLFW_SET_INPUT_MODE: Option<extern "C" fn(*mut c_void, i32, i32)> = None;
+    static mut GLFW_SET_CURSOR_POS: Option<extern "C" fn(*mut c_void, f64, f64)> = None;
 
     static mut C_LOCK_X: f64 = 0.0;
     static mut C_LOCK_Y: f64 = 0.0;
@@ -294,10 +307,12 @@ mod windows_input {
             if button == 0 {
                 if let Ok(mut state) = MOUSE_STATE.lock() {
                     state.left_down = true;
+                    state.left_clicked = true;
                 }
             } else if button == 1 {
                 if let Ok(mut state) = MOUSE_STATE.lock() {
                     state.right_down = true;
+                    state.right_clicked = true;
                 }
             }
         } else if action == 0 {
@@ -366,6 +381,9 @@ mod windows_input {
                         if next {
                             set_mode(GLFW_WINDOW, 0x00033001, 0x00034001);
                         } else {
+                            if let Some(set_cursor_pos) = GLFW_SET_CURSOR_POS {
+                                set_cursor_pos(GLFW_WINDOW, C_LOCK_X, C_LOCK_Y);
+                            }
                             set_mode(GLFW_WINDOW, 0x00033001, 0x00034003);
                         }
                     }

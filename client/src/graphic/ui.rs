@@ -1,4 +1,6 @@
+use crate::client::DarkClient;
 use crate::graphic::font::{draw_text, get_text_width};
+use crate::graphic::input::MOUSE_STATE;
 use crate::graphic::render::Renderer;
 use crate::graphic::ui_manager::UI_MANAGER;
 
@@ -35,6 +37,96 @@ impl Default for Theme {
     }
 }
 
+pub enum HudColor {
+    Yellow,
+    Green,
+    Red,
+    Blue,
+    White,
+    Purple,
+    Cyan,
+}
+
+impl HudColor {
+    pub fn to_rgba(&self) -> (f32, f32, f32, f32) {
+        match self {
+            HudColor::Yellow => (1.0, 1.0, 0.0, 1.0),
+            HudColor::Green => (0.2, 0.8, 0.2, 1.0),
+            HudColor::Red => (0.9, 0.2, 0.2, 1.0),
+            HudColor::Blue => (0.2, 0.4, 1.0, 1.0),
+            HudColor::White => (1.0, 1.0, 1.0, 1.0),
+            HudColor::Purple => (0.6, 0.2, 0.8, 1.0),
+            HudColor::Cyan => (0.2, 0.8, 0.9, 1.0),
+        }
+    }
+}
+
+unsafe fn draw_hud(renderer: &mut Renderer, scale_f: f32) {
+    let watermark = "DarkClient";
+    let w_color = HudColor::Yellow.to_rgba();
+
+    let mut hud_y = 5.0 * scale_f;
+    let hud_x = 5.0 * scale_f;
+    let text_scale = (1.2 * scale_f) as i32;
+
+    draw_text(
+        renderer,
+        watermark,
+        hud_x as i32,
+        hud_y as i32,
+        w_color.0,
+        w_color.1,
+        w_color.2,
+        w_color.3,
+        text_scale,
+    );
+
+    hud_y += 18.0 * scale_f;
+
+    if let Ok(modules_map) = DarkClient::instance().modules.read() {
+        let mut active_mods: Vec<String> = modules_map
+            .values()
+            .filter_map(|m| {
+                let lock = m.lock().unwrap();
+                if lock.get_module_data().enabled {
+                    Some(lock.get_module_data().name.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Sort by length (longest first)
+        active_mods.sort_by(|a, b| b.len().cmp(&a.len()));
+
+        let arraylist_colors = [
+            HudColor::Purple,
+            HudColor::Cyan,
+            HudColor::Green,
+            HudColor::Red,
+            HudColor::Yellow,
+            HudColor::Blue,
+            HudColor::White,
+        ];
+
+        for (i, mod_name) in active_mods.iter().enumerate() {
+            let color = arraylist_colors[i % arraylist_colors.len()].to_rgba();
+            draw_text(
+                renderer,
+                mod_name,
+                hud_x as i32,
+                hud_y as i32,
+                color.0,
+                color.1,
+                color.2,
+                color.3,
+                scale_f as i32,
+            );
+            hud_y += 14.0 * scale_f;
+        }
+    }
+}
+
 /// Represents the main DarkClient GUI window and renders it.
 pub fn render_gui(renderer: &mut Renderer) {
     let mut ui = match UI_MANAGER.lock() {
@@ -49,6 +141,10 @@ pub fn render_gui(renderer: &mut Renderer) {
     let scale_f = base_scale as f32;
 
     ui.update(scale_f);
+
+    unsafe {
+        draw_hud(renderer, scale_f);
+    }
 
     if !ui.is_visible {
         return;
@@ -67,8 +163,21 @@ pub fn render_gui(renderer: &mut Renderer) {
         );
         renderer.draw_rect(0, 0, screen_w, screen_h);
 
+        // Retrieve mouse state for bounds interactions
+        let (mx, my, mut left_clicked, mut right_clicked) = {
+            if let Ok(mut mouse) = MOUSE_STATE.lock() {
+                let l = mouse.left_clicked;
+                let r = mouse.right_clicked;
+                mouse.left_clicked = false;
+                mouse.right_clicked = false;
+                (mouse.x as f32, mouse.y as f32, l, r)
+            } else {
+                (0.0, 0.0, false, false)
+            }
+        };
+
         // Render each window
-        for window in &ui.windows {
+        for window in &mut ui.windows {
             // Rigid Title Position
             let wx = (window.x * scale_f) as f32;
             let wy = (window.y * scale_f) as f32;
@@ -77,8 +186,13 @@ pub fn render_gui(renderer: &mut Renderer) {
             let title_h = 20.0 * scale_f;
 
             // Veil trailing offset
-            let dx = (window.render_x - window.x) * scale_f;
-            let dy = (window.render_y - window.y) * scale_f;
+            let mut dx = (window.render_x - window.x) * scale_f;
+            let mut dy = (window.render_y - window.y) * scale_f;
+
+            // Cap the stretch visual effect
+            let max_stretch = 30.0 * scale_f;
+            dx = dx.clamp(-max_stretch, max_stretch);
+            dy = dy.clamp(-max_stretch, max_stretch);
 
             // --- Draw Title Bar ---
             renderer.set_color(theme.border.0, theme.border.1, theme.border.2, alpha);
@@ -152,14 +266,76 @@ pub fn render_gui(renderer: &mut Renderer) {
 
             // Draw Modules inside Veil
             let mut mod_y = body_top_y + (5.0 * scale_f);
-            for module_name in &window.modules {
-                let mod_h = 16.0 * scale_f;
+            for module_state in &mut window.modules {
+                let module_name = &module_state.name;
+                let mod_act_h = 16.0 * scale_f; // base height
                 let mod_w = ww - (10.0 * scale_f);
                 let mod_x = wx + (5.0 * scale_f);
 
+                let box_side = mod_act_h;
+                let box_x = mod_x + mod_w - box_side;
+                let box_y = mod_y;
+
+                // Check interactions
+                let is_hovering =
+                    mx >= mod_x && mx <= mod_x + mod_w && my >= mod_y && my <= mod_y + mod_act_h;
+
+                let is_box_hovering =
+                    mx >= box_x && mx <= box_x + box_side && my >= box_y && my <= box_y + box_side;
+
+                let mut is_enabled = false;
+                if let Some(m) = DarkClient::instance()
+                    .modules
+                    .read()
+                    .unwrap()
+                    .get(module_name)
+                {
+                    let mut lock = m.lock().unwrap();
+                    is_enabled = lock.get_module_data().enabled;
+
+                    if is_hovering {
+                        if left_clicked {
+                            left_clicked = false;
+
+                            if is_box_hovering {
+                                module_state.is_expanded = !module_state.is_expanded;
+                            } else {
+                                lock.get_module_data_mut().set_enabled(!is_enabled);
+                                if !is_enabled {
+                                    let _ = lock.on_start();
+                                } else {
+                                    let _ = lock.on_stop();
+                                }
+                                is_enabled = !is_enabled;
+                            }
+                        }
+                        if right_clicked {
+                            right_clicked = false;
+                            module_state.is_expanded = !module_state.is_expanded;
+                        }
+                    }
+                }
+
+                // Calculate visual height including expansions
+                let mut expanded_height = 0.0;
+                if module_state.expand_anim > 0.01 {
+                    if let Some(m) = DarkClient::instance()
+                        .modules
+                        .read()
+                        .unwrap()
+                        .get(module_name)
+                    {
+                        let lock = m.lock().unwrap();
+                        let settings_count = lock.get_module_data().settings.len() as f32;
+                        expanded_height = settings_count * 14.0 * scale_f;
+                    }
+                }
+
+                let mod_total_visual_h = mod_act_h + (module_state.expand_anim * expanded_height);
+
                 // Interpolate quad stretch
                 let t_top = ((mod_y - body_top_y) / body_h).clamp(0.0, 1.0);
-                let t_bot = ((mod_y + mod_h - body_top_y) / body_h).clamp(0.0, 1.0);
+                let t_bot = ((mod_y + mod_total_visual_h - body_top_y) / body_h).clamp(0.0, 1.0);
 
                 let mtl_x = mod_x + dx * t_top;
                 let mtl_y = mod_y + dy * t_top;
@@ -167,32 +343,82 @@ pub fn render_gui(renderer: &mut Renderer) {
                 let mtr_y = mod_y + dy * t_top;
 
                 let mbl_x = mod_x + dx * t_bot;
-                let mbl_y = mod_y + mod_h + dy * t_bot;
+                let mbl_y = mod_y + mod_total_visual_h + dy * t_bot;
                 let mbr_x = mod_x + mod_w + dx * t_bot;
-                let mbr_y = mod_y + mod_h + dy * t_bot;
+                let mbr_y = mod_y + mod_total_visual_h + dy * t_bot;
 
-                renderer.set_color(
-                    theme.module_bg.0,
-                    theme.module_bg.1,
-                    theme.module_bg.2,
-                    theme.module_bg.3 * alpha,
-                );
+                let bg_color = if is_hovering {
+                    theme.module_bg_hover
+                } else {
+                    theme.module_bg
+                };
+
+                renderer.set_color(bg_color.0, bg_color.1, bg_color.2, bg_color.3 * alpha);
                 renderer.draw_quad(mtl_x, mtl_y, mtr_x, mtr_y, mbl_x, mbl_y, mbr_x, mbr_y);
 
                 // Module text
-                let text_t = ((mod_y + mod_h / 2.0 - body_top_y) / body_h).clamp(0.0, 1.0);
+                let text_t = ((mod_y + mod_act_h / 2.0 - body_top_y) / body_h).clamp(0.0, 1.0);
                 let t_dx = dx * text_t;
                 let t_dy = dy * text_t;
 
                 let mod_t_width = get_text_width(module_name, text_scale);
                 let mod_t_x = mod_x + t_dx + (mod_w - mod_t_width as f32) / 2.0;
-                let mod_t_y = mod_y + t_dy + (mod_h - (7.0 * scale_f)) / 2.0;
+                let mod_t_y = mod_y + t_dy + (mod_act_h - (7.0 * scale_f)) / 2.0;
+
+                let text_color = if is_enabled {
+                    theme.text_accent
+                } else {
+                    theme.text_primary
+                };
 
                 draw_text(
                     renderer,
                     module_name,
                     mod_t_x as i32,
                     mod_t_y as i32,
+                    text_color.0,
+                    text_color.1,
+                    text_color.2,
+                    alpha,
+                    text_scale,
+                );
+
+                // Draw arrow box
+                let t_dx_box = dx * text_t;
+                let t_dy_box = dy * text_t;
+                let actual_box_x = box_x + t_dx_box;
+                let actual_box_y = box_y + t_dy_box;
+
+                let box_bg = if is_box_hovering {
+                    theme.module_bg_hover
+                } else {
+                    theme.module_bg
+                };
+
+                // Border separator
+                renderer.set_color(theme.border.0, theme.border.1, theme.border.2, alpha * 0.5);
+                renderer.draw_rect(
+                    actual_box_x as i32 - 1,
+                    actual_box_y as i32,
+                    box_side as i32 + 1,
+                    box_side as i32,
+                );
+
+                renderer.set_color(box_bg.0, box_bg.1, box_bg.2, box_bg.3 * alpha);
+                renderer.draw_rect(
+                    actual_box_x as i32,
+                    actual_box_y as i32,
+                    box_side as i32,
+                    box_side as i32,
+                );
+
+                let arrow_char = if module_state.is_expanded { "^" } else { "v" };
+                let arrow_w = get_text_width(arrow_char, text_scale);
+                draw_text(
+                    renderer,
+                    arrow_char,
+                    (actual_box_x + (box_side - arrow_w as f32) / 2.0) as i32,
+                    (actual_box_y + (box_side - 7.0 * scale_f) / 2.0) as i32,
                     theme.text_primary.0,
                     theme.text_primary.1,
                     theme.text_primary.2,
@@ -200,7 +426,178 @@ pub fn render_gui(renderer: &mut Renderer) {
                     text_scale,
                 );
 
-                mod_y += mod_h + (2.0 * scale_f);
+                // Draw settings
+                if module_state.expand_anim > 0.01 {
+                    if let Some(m) = DarkClient::instance()
+                        .modules
+                        .read()
+                        .unwrap()
+                        .get(module_name)
+                    {
+                        let mut lock = m.lock().unwrap();
+                        let data = lock.get_module_data_mut();
+
+                        let mut set_y = mod_y + mod_act_h;
+
+                        // Let's get mouse dragged state
+                        let left_down = if let Ok(mouse) = MOUSE_STATE.lock() {
+                            mouse.left_down
+                        } else {
+                            false
+                        };
+
+                        for setting in &mut data.settings {
+                            let set_h = 14.0 * scale_f;
+                            let text_t =
+                                ((set_y + set_h / 2.0 - body_top_y) / body_h).clamp(0.0, 1.0);
+                            let t_dx = dx * text_t;
+                            let t_dy = dy * text_t;
+
+                            let set_x = mod_x + (10.0 * scale_f); // Indent
+                            let set_w = mod_w - (10.0 * scale_f);
+
+                            // Calculate skewed positions for interaction
+                            let actual_sx = set_x + t_dx;
+                            let actual_sy = set_y + t_dy;
+
+                            let is_set_hovering = mx >= actual_sx
+                                && mx <= actual_sx + set_w
+                                && my >= actual_sy
+                                && my <= actual_sy + set_h;
+
+                            let set_alpha = alpha * module_state.expand_anim;
+
+                            match setting {
+                                crate::module::ModuleSetting::Toggle { name, value } => {
+                                    if is_set_hovering && left_clicked {
+                                        *value = !*value;
+                                        left_clicked = false;
+                                    }
+
+                                    let t_color = if *value {
+                                        theme.text_accent
+                                    } else {
+                                        theme.text_primary
+                                    };
+
+                                    draw_text(
+                                        renderer,
+                                        &format!("{}: {}", name, if *value { "On" } else { "Off" }),
+                                        actual_sx as i32,
+                                        (actual_sy + (set_h - 7.0 * scale_f) / 2.0) as i32,
+                                        t_color.0,
+                                        t_color.1,
+                                        t_color.2,
+                                        set_alpha,
+                                        text_scale,
+                                    );
+                                }
+                                crate::module::ModuleSetting::Slider {
+                                    name,
+                                    value,
+                                    min,
+                                    max,
+                                } => {
+                                    let slider_w = set_w - (60.0 * scale_f);
+                                    let slider_x = actual_sx + (50.0 * scale_f);
+
+                                    if is_set_hovering && left_down {
+                                        let relative_x = (mx - slider_x).clamp(0.0, slider_w);
+                                        let factor = relative_x / slider_w;
+                                        *value = *min + factor * (*max - *min);
+                                        // Optional: snap or round value here
+                                    }
+
+                                    draw_text(
+                                        renderer,
+                                        &format!("{}: {:.1}", name, value),
+                                        actual_sx as i32,
+                                        (actual_sy + (set_h - 7.0 * scale_f) / 2.0) as i32,
+                                        theme.text_primary.0,
+                                        theme.text_primary.1,
+                                        theme.text_primary.2,
+                                        set_alpha,
+                                        text_scale,
+                                    );
+
+                                    // Draw thin slider line
+                                    renderer.set_color(
+                                        theme.text_primary.0,
+                                        theme.text_primary.1,
+                                        theme.text_primary.2,
+                                        set_alpha * 0.5,
+                                    );
+                                    renderer.draw_rect(
+                                        slider_x as i32,
+                                        (actual_sy + set_h / 2.0) as i32,
+                                        slider_w as i32,
+                                        (2.0 * scale_f) as i32,
+                                    );
+
+                                    // Draw handle
+                                    let handle_x =
+                                        slider_x + ((*value - *min) / (*max - *min)) * slider_w;
+                                    renderer.set_color(
+                                        theme.text_accent.0,
+                                        theme.text_accent.1,
+                                        theme.text_accent.2,
+                                        set_alpha,
+                                    );
+                                    renderer.draw_rect(
+                                        (handle_x - 2.0 * scale_f) as i32,
+                                        (actual_sy + set_h / 2.0 - 2.0 * scale_f) as i32,
+                                        (4.0 * scale_f) as i32,
+                                        (6.0 * scale_f) as i32,
+                                    );
+                                }
+                                crate::module::ModuleSetting::Choice {
+                                    name,
+                                    value,
+                                    options,
+                                } => {
+                                    if is_set_hovering && left_clicked {
+                                        *value = (*value + 1) % options.len();
+                                        left_clicked = false;
+                                    }
+                                    let current_opt = if *value < options.len() {
+                                        &options[*value]
+                                    } else {
+                                        "Unknown"
+                                    };
+
+                                    draw_text(
+                                        renderer,
+                                        &format!("{}: {}", name, current_opt),
+                                        actual_sx as i32,
+                                        (actual_sy + (set_h - 7.0 * scale_f) / 2.0) as i32,
+                                        theme.text_primary.0,
+                                        theme.text_primary.1,
+                                        theme.text_primary.2,
+                                        set_alpha,
+                                        text_scale,
+                                    );
+                                }
+                                crate::module::ModuleSetting::Color { name, .. } => {
+                                    draw_text(
+                                        renderer,
+                                        &format!("{}: [Color]", name),
+                                        actual_sx as i32,
+                                        (actual_sy + (set_h - 7.0 * scale_f) / 2.0) as i32,
+                                        theme.text_primary.0,
+                                        theme.text_primary.1,
+                                        theme.text_primary.2,
+                                        set_alpha,
+                                        text_scale,
+                                    );
+                                }
+                            }
+
+                            set_y += set_h;
+                        }
+                    }
+                }
+
+                mod_y += mod_total_visual_h + (2.0 * scale_f);
             }
         }
     }

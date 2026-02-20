@@ -84,8 +84,14 @@ fn setup_signal_handlers() {
         }
 
         unsafe {
-            libc::signal(libc::SIGTERM, handle_signal as libc::sighandler_t);
-            libc::signal(libc::SIGINT, handle_signal as libc::sighandler_t);
+            libc::signal(
+                libc::SIGTERM,
+                handle_signal as *const () as libc::sighandler_t,
+            );
+            libc::signal(
+                libc::SIGINT,
+                handle_signal as *const () as libc::sighandler_t,
+            );
         }
 
         info!("Signal handlers installed");
