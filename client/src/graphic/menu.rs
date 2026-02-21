@@ -22,8 +22,11 @@ pub fn draw(ctx: &Context, anim_progress: f32) {
         .show(ctx, |ui| {
             ui.set_opacity(anim_progress);
             ui.horizontal(|ui| {
-                if ui.button(egui::RichText::new("PANIC").color(Color32::RED)).clicked() {
-                    std::thread::spawn(|| crate::graphic::ui_manager::call_panic());
+                if ui
+                    .button(egui::RichText::new("PANIC").color(Color32::RED))
+                    .clicked()
+                {
+                    std::thread::spawn(|| crate::graphic::ui_engine::call_panic());
                 }
                 if ui.button("Reset UI").clicked() {
                     // Egui salva le posizioni in memoria. Per resettarle:

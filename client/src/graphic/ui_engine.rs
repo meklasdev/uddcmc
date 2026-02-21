@@ -1,9 +1,11 @@
-use std::sync::atomic::Ordering;
-use std::sync::Mutex;
+use crate::cleanup_client;
+use crate::client::DarkClient;
+use crate::graphic::input::{GUI_OPEN, MOUSE_STATE};
 use egui::Context;
 use egui_glow::Painter;
 use lazy_static::lazy_static;
-use crate::graphic::input::{GUI_OPEN, MOUSE_STATE};
+use std::sync::atomic::Ordering;
+use std::sync::Mutex;
 
 pub struct EguiState {
     pub ctx: Context,
@@ -18,14 +20,21 @@ lazy_static! {
     pub static ref EGUI_STATE: Mutex<Option<EguiState>> = Mutex::new(None);
 }
 
-pub fn gather_egui_inputs(state: &mut EguiState, screen_width: f32, screen_height: f32, scale_factor: f32) -> egui::RawInput {
+pub fn gather_egui_inputs(
+    state: &mut EguiState,
+    screen_width: f32,
+    screen_height: f32,
+    scale_factor: f32,
+) -> egui::RawInput {
     let mut raw_input = egui::RawInput::default();
     // 1. Configura il Viewport principale con il nostro moltiplicatore di scala
     let mut viewport_info = egui::ViewportInfo::default();
     viewport_info.native_pixels_per_point = Some(scale_factor);
 
     // Inseriamo le info nella mappa usando l'ID di default (ROOT)
-    raw_input.viewports.insert(egui::ViewportId::ROOT, viewport_info);
+    raw_input
+        .viewports
+        .insert(egui::ViewportId::ROOT, viewport_info);
 
     // 2. Passiamo le coordinate LOGICHE (divise per la scala)
     let logical_width = screen_width / scale_factor;
@@ -44,12 +53,14 @@ pub fn gather_egui_inputs(state: &mut EguiState, screen_width: f32, screen_heigh
     let mouse = MOUSE_STATE.lock().unwrap();
     let current_pos = egui::pos2(
         (mouse.x as f32) / scale_factor,
-        (mouse.y as f32) / scale_factor
+        (mouse.y as f32) / scale_factor,
     );
 
     // 1. Movimento del Mouse
     if current_pos != state.last_mouse_pos {
-        raw_input.events.push(egui::Event::PointerMoved(current_pos));
+        raw_input
+            .events
+            .push(egui::Event::PointerMoved(current_pos));
         state.last_mouse_pos = current_pos;
     }
 
@@ -125,15 +136,17 @@ pub unsafe fn render_egui_ui() {
     }); // Fine di ctx.run
 
     // Il resto del rendering OpenGL rimane identico, full_output ora viene da ctx.run
-    let clipped_primitives = state.ctx.tessellate(full_output.shapes, full_output.pixels_per_point);
+    let clipped_primitives = state
+        .ctx
+        .tessellate(full_output.shapes, full_output.pixels_per_point);
 
     // --- INIZIO FIX GEROGLIFICI ---
     // Resettiamo lo stato di unpack dei pixel che Minecraft spesso corrompe
     // prima di far caricare le texture dei font a egui
     unsafe {
         crate::gl::ActiveTexture(crate::gl::TEXTURE0);
-        crate::gl::PixelStorei(crate::gl::UNPACK_ALIGNMENT, 1);       // Egui preferisce l'allineamento a 1 byte
-        crate::gl::PixelStorei(crate::gl::UNPACK_ROW_LENGTH, 0);      // Questo è il colpevole principale al 99%!
+        crate::gl::PixelStorei(crate::gl::UNPACK_ALIGNMENT, 1); // Egui preferisce l'allineamento a 1 byte
+        crate::gl::PixelStorei(crate::gl::UNPACK_ROW_LENGTH, 0); // Questo è il colpevole principale al 99%!
         crate::gl::PixelStorei(crate::gl::UNPACK_SKIP_PIXELS, 0);
         crate::gl::PixelStorei(crate::gl::UNPACK_SKIP_ROWS, 0);
 
@@ -151,4 +164,25 @@ pub unsafe fn render_egui_ui() {
         &clipped_primitives,
         &full_output.textures_delta,
     );
+}
+
+pub fn call_panic() {
+    let client = DarkClient::instance();
+    client.modules.read().unwrap().values().for_each(|module| {
+        let mut module = module.lock().unwrap();
+        if module.get_module_data().enabled {
+            module.get_module_data_mut().set_enabled(false);
+            match module.on_stop() {
+                Ok(_) => {}
+                Err(e) => {
+                    log::error!(
+                        "Failed to stop module {} on panic: {}",
+                        module.get_module_data().name,
+                        e
+                    );
+                }
+            }
+        }
+    });
+    cleanup_client();
 }
