@@ -37,7 +37,7 @@ cfg_if! {
         use libc::c_void;
 
         // Helper to load OpenGL functions on Linux
-        fn get_proc_address(addr: &str) -> *const c_void {
+        pub fn get_proc_address(addr: &str) -> *const c_void {
             unsafe {
                 let s = CString::new(addr).unwrap();
                 // Try first with glXGetProcAddress if available, otherwise dlsym
@@ -120,12 +120,7 @@ use crate::graphic::render::Renderer;
 
 // === RENDERING LOGIC ===
 unsafe fn render_overlay() {
-    // Skip if we are rendering on the Egui window
-    if crate::gui::IS_EGUI_THREAD.with(|f| f.get()) {
-        return;
-    }
-
-    if crate::mapping::client::minecraft::Minecraft::instance()
+    if Minecraft::instance()
         .get_player()
         .is_err()
     {
@@ -136,10 +131,12 @@ unsafe fn render_overlay() {
     crate::graphic::input::init();
 
     // Initialize the renderer, which backs up OpenGL state
-    let mut renderer = Renderer::new();
+    //let mut renderer = Renderer::new();
 
     // Call our new custom OpenGL UI system
-    crate::graphic::ui::render_gui(&mut renderer);
+    //crate::graphic::ui::render_gui(&mut renderer);
+    
+    crate::graphic::ui_engine::render_egui_ui();
 
     // the state is restored automatically when `renderer` goes out of scope and drops
 }

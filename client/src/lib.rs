@@ -3,7 +3,6 @@
 extern crate jni;
 mod client;
 mod graphic;
-mod gui;
 mod mapping;
 mod module;
 
@@ -11,10 +10,8 @@ pub mod gl {
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }
 
-use crate::client::keyboard::{start_keyboard_handler, stop_keyboard_handler};
 use crate::client::DarkClient;
 use crate::graphic::hook::{install_hooks, uninstall_hooks};
-use crate::gui::start_gui;
 use crate::mapping::client::minecraft::Minecraft;
 use crate::module::combat::mobaura::MobAuraModule;
 use log::{error, info, LevelFilter};
@@ -24,17 +21,10 @@ use module::movement::fly::FlyModule;
 use simplelog::{Config, WriteLogger};
 use std::fs::File;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, OnceLock};
 use std::thread;
-
-static GUI_THREAD: OnceLock<Mutex<Option<thread::JoinHandle<()>>>> = OnceLock::new();
 
 // Flag to control if the client is running
 pub static RUNNING: AtomicBool = AtomicBool::new(false);
-
-fn gui_thread() -> &'static Mutex<Option<thread::JoinHandle<()>>> {
-    GUI_THREAD.get_or_init(|| Mutex::new(None))
-}
 
 #[no_mangle]
 pub extern "C" fn initialize_client() {
@@ -68,21 +58,10 @@ pub extern "C" fn initialize_client() {
 
         register_modules();
 
-        start_keyboard_handler();
-
         // Install hooks
         if let Err(e) = install_hooks() {
             error!("Failed to install hooks: {}", e);
         }
-
-        let gui_handle = thread::spawn(move || match start_gui() {
-            Ok(_) => info!("GUI thread started"),
-            Err(e) => error!("Error while starting GUI thread: {}", e),
-        });
-
-        // Memorize the thread handle in a thread-safe way
-        let mut gui_lock = gui_thread().lock().unwrap();
-        *gui_lock = Some(gui_handle);
 
         match minecraft.get_player() {
             Ok(player) => {
@@ -103,26 +82,11 @@ pub extern "C" fn cleanup_client() {
     // Set the execution flag to false
     RUNNING.store(false, Ordering::SeqCst);
 
-    // RIMUOVI FISICAMENTE L'HOOK
+    // Remove the hooks
     uninstall_hooks();
-
-    // Stop the keyboard handler
-    stop_keyboard_handler();
 
     // Unlock GLFW Input / Restore callbacks if GUI was open
     crate::graphic::input::cleanup();
-
-    let gui_handle = {
-        let mut gui_lock = gui_thread().lock().unwrap();
-        gui_lock.take()
-    };
-
-    if let Some(handle) = gui_handle {
-        // Give a short timeout for waiting
-        if let Err(e) = handle.join() {
-            error!("Error while waiting for gui thread: {:?}", e);
-        }
-    }
 
     // Clean up other resources if necessary
     info!("Client cleanup completed");

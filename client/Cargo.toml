@@ -9,8 +9,10 @@ crate-type = ["cdylib"]
 
 [dependencies]
 egui.workspace = true
-eframe.workspace = true
-winit = "0.30"
+#eframe.workspace = true
+egui_glow = "0.29.0"
+glow = "0.14.0"
+#winit = "0.30"
 log.workspace = true
 simplelog.workspace = true
 jni = "0.21.1"

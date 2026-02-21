@@ -92,12 +92,3 @@ impl DarkClient {
         }
     }
 }
-
-// Module for handling keyboard inputs
-pub mod keyboard {
-    pub fn start_keyboard_handler() {
-        // Keyboard handling is now natively event-driven via GLFW inside graphic::input::my_key_callback
-    }
-
-    pub fn stop_keyboard_handler() {}
-}

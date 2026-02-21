@@ -1,3 +1,4 @@
+use crate::cleanup_client;
 use crate::client::DarkClient;
 use crate::graphic::color::Rgba;
 use crate::graphic::input::{GUI_OPEN, MOUSE_STATE};
@@ -274,8 +275,29 @@ impl UiManager {
                 .panic_btn
                 .handle_click(mx, my, left_clicked, right_clicked, scale_f)
             {
-                std::thread::spawn(|| crate::gui::call_panic());
+                std::thread::spawn(|| call_panic());
             }
         }
     }
+}
+
+pub fn call_panic() {
+    let client = DarkClient::instance();
+    client.modules.read().unwrap().values().for_each(|module| {
+        let mut module = module.lock().unwrap();
+        if module.get_module_data().enabled {
+            module.get_module_data_mut().set_enabled(false);
+            match module.on_stop() {
+                Ok(_) => {}
+                Err(e) => {
+                    log::error!(
+                        "Failed to stop module {} on panic: {}",
+                        module.get_module_data().name,
+                        e
+                    );
+                }
+            }
+        }
+    });
+    cleanup_client();
 }
