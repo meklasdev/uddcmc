@@ -93,21 +93,24 @@ pub fn draw(ctx: &Context, anim_progress: f32) {
                     };
 
                     // Creiamo una riga custom per gestire click SINISTRO (Toggle) e DESTRO (Espandi)
-                    let (rect, response) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 20.0), Sense::click());
+                    let (rect, response) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 22.0), Sense::click());
 
                     // Gestione Colori Background in base a hover
                     let bg_color = if response.hovered() {
-                        Color32::from_rgb(64, 64, 64)
+                        Color32::from_rgb(40, 40, 40) // Illumina un po' all'hover
                     } else {
-                        Color32::from_rgb(38, 38, 38)
+                        Color32::TRANSPARENT // Sfondo invisibile, prende il colore della finestra
                     };
-                    ui.painter().rect_filled(rect, Rounding::same(4.0), bg_color);
+                    ui.painter().rect_filled(rect, Rounding::ZERO, bg_color);
 
                     // Testo Modulo
-                    let text_color = if is_enabled { Color32::YELLOW } else { Color32::WHITE };
-                    let text_pos = rect.min + Vec2::new(5.0, 3.0);
+                    let text_color = if is_enabled {
+                        Color32::from_rgb(26, 171, 138) // Accent Color
+                    } else {
+                        Color32::from_rgb(200, 200, 200)
+                    };                    let text_pos = rect.min + Vec2::new(5.0, 3.0);
                     ui.painter().text(
-                        text_pos,
+                        rect.min + egui::vec2(8.0, 4.0), // Padding sinistro
                         egui::Align2::LEFT_TOP,
                         &mod_name,
                         egui::FontId::proportional(14.0),
@@ -168,8 +171,11 @@ pub fn draw(ctx: &Context, anim_progress: f32) {
 
                         // Se è espanso, mostriamo i settaggi usando i widget nativi di egui
                         if is_expanded {
-                            ui.horizontal(|ui| {
-                                ui.add_space(10.0); // Indentazione
+                            let settings_frame = egui::Frame::none()
+                                .fill(Color32::from_rgb(15, 15, 15)) // Più scuro della finestra
+                                .inner_margin(egui::Margin::symmetric(8.0, 6.0));
+
+                            settings_frame.show(ui, |ui| {
                                 ui.vertical(|ui| {
                                     // 1. Diciamo agli slider di essere larghi solo 60 pixel
                                     ui.style_mut().spacing.slider_width = 60.0;
