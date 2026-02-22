@@ -240,6 +240,45 @@ pub fn draw(
                                             Some(egui::TextWrapMode::Truncate);
                                         ui.style_mut().spacing.interact_size.x = 80.0;
 
+                                        // 1. Static Keybind Row
+                                        ui.horizontal(|ui| {
+                                            ui.label("Bind");
+                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                let mut keybind_str = data.key_bind.to_string();
+                                                let binding_id = ui.id().with("binding");
+                                                let is_binding = ui.data(|d| d.get_temp::<bool>(binding_id).unwrap_or(false));
+                                                
+                                                if is_binding {
+                                                    keybind_str = "_".to_string();
+                                                    // Consume any latest key press since they clicked "Bind"
+                                                    let pressed = crate::graphic::input::LAST_KEY_PRESSED.swap(-1, std::sync::atomic::Ordering::Relaxed);
+                                                    if pressed != -1 {
+                                                        if crate::module::KeyboardKey::from(pressed) == crate::module::KeyboardKey::KeyEscape {
+                                                            data.key_bind = crate::module::KeyboardKey::KeyNone; // Unbind
+                                                        } else {
+                                                            data.key_bind = crate::module::KeyboardKey::from(pressed);
+                                                        }
+                                                        ui.data_mut(|d| d.insert_temp(binding_id, false));
+                                                    }
+                                                }
+                                                
+                                                // Small clean minimal button for the bind
+                                                let btn = ui.add(egui::Button::new(
+                                                    egui::RichText::new(&keybind_str).color(Color32::from_rgb(160, 160, 160))
+                                                ).fill(Color32::from_rgb(25, 25, 25)).stroke(egui::Stroke::NONE));
+                                                
+                                                if btn.clicked() {
+                                                    // Toggle binding mode
+                                                    let new_state = !is_binding;
+                                                    ui.data_mut(|d| d.insert_temp(binding_id, new_state));
+                                                    if new_state {
+                                                        // Flush any old presses
+                                                        crate::graphic::input::LAST_KEY_PRESSED.store(-1, std::sync::atomic::Ordering::Relaxed);
+                                                    }
+                                                }
+                                            });
+                                        });
+
                                         for setting in &mut data.settings {
                                             match setting {
                                                 ModuleSetting::Toggle { name, value } => {

@@ -6,6 +6,7 @@ use std::sync::Mutex;
 
 // Global Input State
 pub static GUI_OPEN: AtomicBool = AtomicBool::new(false);
+pub static LAST_KEY_PRESSED: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
 
 lazy_static::lazy_static! {
     pub static ref MOUSE_STATE: Mutex<MouseState> = Mutex::new(MouseState::default());
@@ -129,6 +130,10 @@ mod linux_input {
         action: i32,
         mods: i32,
     ) {
+        if action == 1 {
+            LAST_KEY_PRESSED.store(key, Ordering::Relaxed);
+        }
+
         if key == 344 /* Right Shift */ && action == 1 {
             // Toggle GUI
             let current = GUI_OPEN.load(Ordering::Relaxed);
