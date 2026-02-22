@@ -144,6 +144,24 @@ pub unsafe fn render_egui_ui() {
 
     // Reset pixel unpack state that is often corrupted by Minecraft
     unsafe {
+        let mut last_texture = 0;
+        crate::gl::GetIntegerv(crate::gl::TEXTURE_BINDING_2D, &mut last_texture);
+        let mut last_active_texture = 0;
+        crate::gl::GetIntegerv(crate::gl::ACTIVE_TEXTURE, &mut last_active_texture);
+        let mut last_array_buffer = 0;
+        crate::gl::GetIntegerv(crate::gl::ARRAY_BUFFER_BINDING, &mut last_array_buffer);
+        let mut last_element_array_buffer = 0;
+        crate::gl::GetIntegerv(
+            crate::gl::ELEMENT_ARRAY_BUFFER_BINDING,
+            &mut last_element_array_buffer,
+        );
+        let mut last_vertex_array = 0;
+        crate::gl::GetIntegerv(crate::gl::VERTEX_ARRAY_BINDING, &mut last_vertex_array);
+        let mut last_program = 0;
+        crate::gl::GetIntegerv(crate::gl::CURRENT_PROGRAM, &mut last_program);
+
+        crate::gl::BindBuffer(crate::gl::PIXEL_UNPACK_BUFFER, 0);
+
         crate::gl::ActiveTexture(crate::gl::TEXTURE0);
         crate::gl::PixelStorei(crate::gl::UNPACK_ALIGNMENT, 1);
         crate::gl::PixelStorei(crate::gl::UNPACK_ROW_LENGTH, 0);
@@ -153,14 +171,26 @@ pub unsafe fn render_egui_ui() {
         crate::gl::Disable(crate::gl::CULL_FACE);
         crate::gl::Disable(crate::gl::DEPTH_TEST);
         crate::gl::Enable(crate::gl::BLEND);
-    }
 
-    state.painter.paint_and_update_textures(
-        [screen_width as u32, screen_height as u32],
-        full_output.pixels_per_point,
-        &clipped_primitives,
-        &full_output.textures_delta,
-    );
+        state.painter.paint_and_update_textures(
+            [screen_width as u32, screen_height as u32],
+            full_output.pixels_per_point,
+            &clipped_primitives,
+            &full_output.textures_delta,
+        );
+
+        // Restore critical state to prevent Minecraft rendering corruption
+        // (and prevent Minecraft from corrupting our EGUI texture/vao on the next frame)
+        crate::gl::BindTexture(crate::gl::TEXTURE_2D, last_texture as u32);
+        crate::gl::BindBuffer(crate::gl::ARRAY_BUFFER, last_array_buffer as u32);
+        crate::gl::BindBuffer(
+            crate::gl::ELEMENT_ARRAY_BUFFER,
+            last_element_array_buffer as u32,
+        );
+        crate::gl::BindVertexArray(last_vertex_array as u32);
+        crate::gl::UseProgram(last_program as u32);
+        crate::gl::ActiveTexture(last_active_texture as u32);
+    }
 }
 
 pub fn call_panic() {

@@ -56,4 +56,7 @@ pub fn render_all(ctx: &Context, window_anim_states: &mut HashMap<String, Window
     if anim_progress > 0.0 {
         menu::draw(ctx, anim_progress, window_anim_states);
     }
+
+    // Always draw notifications on top
+    crate::graphic::notification::draw_notifications(ctx);
 }

@@ -32,8 +32,11 @@ pub fn draw(
                 {
                     std::thread::spawn(|| crate::graphic::ui_engine::call_panic());
                 }
+                ui.add_space(20.0);
                 if ui.button("Reset UI").clicked() {
+                    window_anim_states.clear();
                     ctx.memory_mut(|mem| mem.reset_areas());
+                    ctx.data_mut(|d| d.clear());
                 }
             });
         });
@@ -86,13 +89,17 @@ pub fn draw(
             let stiffness = 280.0;
             let damping = 18.0;
 
-            let displacement = win_state.actual_pos - target_pos;
-            let spring_force = -stiffness * displacement;
-            let damping_force = -damping * win_state.velocity;
-            let acceleration = spring_force + damping_force;
+            let substeps = 4;
+            let sub_dt = dt / (substeps as f32);
+            for _ in 0..substeps {
+                let displacement = win_state.actual_pos - target_pos;
+                let spring_force = -stiffness * displacement;
+                let damping_force = -damping * win_state.velocity;
+                let acceleration = spring_force + damping_force;
 
-            win_state.velocity += acceleration * dt;
-            win_state.actual_pos += win_state.velocity * dt;
+                win_state.velocity += acceleration * sub_dt;
+                win_state.actual_pos += win_state.velocity * sub_dt;
+            }
         }
 
         let y_offset_spawn = Vec2::new(0.0, 20.0 * (1.0 - anim_progress));
@@ -114,12 +121,16 @@ pub fn draw(
                     ui.set_min_width(win_w);
                     ui.set_max_width(win_w);
 
+                    ui.set_min_height(35.0);
+
                     // Title Bar
                     let (title_rect, title_resp) =
                         ui.allocate_exact_size(Vec2::new(win_w, 24.0), Sense::drag());
 
-                    if title_resp.dragged() {
-                        target_pos += title_resp.drag_delta();
+                    let is_drag_active = title_resp.dragged() || ui.ctx().is_being_dragged(title_resp.id);
+                    
+                    if is_drag_active {
+                        target_pos += ui.ctx().input(|i| i.pointer.delta());
                         ctx.data_mut(|d| d.insert_temp(area_id, target_pos));
                     }
 
@@ -245,7 +256,7 @@ pub fn draw(
                                             ui.label("Bind");
                                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                                 let mut keybind_str = data.key_bind.to_string();
-                                                let binding_id = ui.id().with("binding");
+                                                let binding_id = ui.id().with(format!("{}_binding", mod_name));
                                                 let is_binding = ui.data(|d| d.get_temp::<bool>(binding_id).unwrap_or(false));
                                                 
                                                 if is_binding {
@@ -253,12 +264,40 @@ pub fn draw(
                                                     // Consume any latest key press since they clicked "Bind"
                                                     let pressed = crate::graphic::input::LAST_KEY_PRESSED.swap(-1, std::sync::atomic::Ordering::Relaxed);
                                                     if pressed != -1 {
-                                                        if crate::module::KeyboardKey::from(pressed) == crate::module::KeyboardKey::KeyEscape {
+                                                        let new_key = crate::module::KeyboardKey::from(pressed);
+                                                        
+                                                        if new_key == crate::module::KeyboardKey::KeyEscape {
                                                             data.key_bind = crate::module::KeyboardKey::KeyNone; // Unbind
+                                                            ui.data_mut(|d| d.insert_temp(binding_id, false));
                                                         } else {
-                                                            data.key_bind = crate::module::KeyboardKey::from(pressed);
+                                                            // Check for duplicates
+                                                            let mut is_duplicate = false;
+                                                            let mut duplicate_name = String::new();
+                                                            
+                                                            for other_mod in client_modules_guard.values() {
+                                                                if std::sync::Arc::ptr_eq(module, other_mod) {
+                                                                    continue;
+                                                                }
+                                                                let other_lock = other_mod.lock().unwrap();
+                                                                let other_data = other_lock.get_module_data();
+                                                                if other_data.key_bind == new_key {
+                                                                    is_duplicate = true;
+                                                                    duplicate_name = other_data.name.clone();
+                                                                    break;
+                                                                }
+                                                            }
+                                                            
+                                                            if is_duplicate {
+                                                                crate::graphic::notification::Notification::send(
+                                                                    crate::graphic::notification::NotificationType::Alert,
+                                                                    "Keybind Conflict",
+                                                                    &format!("Cheat '{}' already uses key '{}'", duplicate_name, new_key.to_string())
+                                                                );
+                                                            } else {
+                                                                data.key_bind = new_key;
+                                                                ui.data_mut(|d| d.insert_temp(binding_id, false));
+                                                            }
                                                         }
-                                                        ui.data_mut(|d| d.insert_temp(binding_id, false));
                                                     }
                                                 }
                                                 
