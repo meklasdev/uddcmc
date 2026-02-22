@@ -116,14 +116,11 @@ unsafe fn on_frame() {
     render_overlay();
 }
 
-use crate::graphic::render::Renderer;
+// use crate::graphic::render::Renderer; - Removed
 
 // === RENDERING LOGIC ===
 unsafe fn render_overlay() {
-    if Minecraft::instance()
-        .get_player()
-        .is_err()
-    {
+    if Minecraft::instance().get_player().is_err() {
         return;
     }
 
@@ -135,7 +132,7 @@ unsafe fn render_overlay() {
 
     // Call our new custom OpenGL UI system
     //crate::graphic::ui::render_gui(&mut renderer);
-    
+
     crate::graphic::ui_engine::render_egui_ui();
 
     // the state is restored automatically when `renderer` goes out of scope and drops

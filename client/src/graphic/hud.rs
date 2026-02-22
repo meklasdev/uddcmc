@@ -1,21 +1,22 @@
 use crate::client::DarkClient;
-use egui::{Align2, Color32, Context, Id, RichText};
+use egui::{Color32, Context, Id, RichText};
 
 pub fn draw(ctx: &Context) {
-    // --- WATERMARK (In alto a sinistra) ---
     egui::Area::new(Id::new("hud_watermark"))
         .fixed_pos(egui::pos2(5.0, 5.0))
-        .interactable(false) // Non blocca i click
+        .interactable(false)
         .show(ctx, |ui| {
             ui.add(
                 egui::Label::new(
-                    RichText::new("DarkClient").color(Color32::YELLOW).size(24.0).strong()
+                    RichText::new("DarkClient")
+                        .color(Color32::YELLOW)
+                        .size(24.0)
+                        .strong(),
                 )
-                    .wrap_mode(egui::TextWrapMode::Extend)
+                .wrap_mode(egui::TextWrapMode::Extend),
             );
         });
 
-    // --- ARRAYLIST / MODULI ATTIVI (Sotto il watermark) ---
     egui::Area::new(Id::new("hud_arraylist"))
         .fixed_pos(egui::pos2(5.0, 35.0))
         .interactable(false)
@@ -48,10 +49,8 @@ pub fn draw(ctx: &Context) {
                 for (i, mod_name) in active_mods.iter().enumerate() {
                     let color = colors[i % colors.len()];
                     ui.add(
-                        egui::Label::new(
-                            RichText::new(mod_name).color(color).size(16.0)
-                        )
-                            .wrap_mode(egui::TextWrapMode::Extend) // <--- Disabilita il word-wrap!
+                        egui::Label::new(RichText::new(mod_name).color(color).size(16.0))
+                            .wrap_mode(egui::TextWrapMode::Extend),
                     );
                 }
             }
