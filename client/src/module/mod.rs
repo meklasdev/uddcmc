@@ -6,7 +6,7 @@ pub mod movement;
 pub type ModuleType = Box<dyn Module + Send + Sync>;
 
 #[allow(dead_code)]
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ModuleCategory {
     COMBAT,
     MOVEMENT,

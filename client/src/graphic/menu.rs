@@ -1,48 +1,66 @@
+//! The ClickGUI: a draggable, spring-animated panel per module category.
+//!
+//! The menu is split into small, single-purpose functions so the drawing
+//! code reads top-down. Module mutexes are locked **exactly once** per module
+//! per frame; all motion goes through [`anim`], so it is frame-rate
+//! independent and needs no per-widget state threaded through the call tree.
+
 use crate::client::DarkClient;
-use crate::graphic::ui_engine::WindowAnimState;
-use crate::module::{ModuleCategory, ModuleSetting};
-use egui::{Align2, Color32, Context, Id, Pos2, Rect, Rounding, Sense, Vec2};
+use crate::graphic::anim::{self, Easing, SpringCfg};
+use crate::graphic::input::LAST_KEY_PRESSED;
+use crate::graphic::notification::{Notification, NotificationType};
+use crate::graphic::theme;
+use crate::module::{KeyboardKey, ModuleCategory, ModuleData, ModuleSetting, ModuleType};
+use egui::{
+    Align, Align2, Button, Color32, Context, FontId, Id, LayerId, Layout, Margin, Order, Painter,
+    Pos2, Rect, RichText, Rounding, Sense, Shape, Stroke, Ui, Vec2,
+};
 use std::collections::HashMap;
+use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
 
-pub fn draw(
-    ctx: &Context,
-    anim_progress: f32,
-    window_anim_states: &mut HashMap<String, WindowAnimState>,
-) {
-    egui::Area::new(Id::new("dark_overlay"))
-        .fixed_pos(Pos2::ZERO)
-        .order(egui::Order::Background)
-        .interactable(false)
-        .show(ctx, |ui| {
-            ui.painter().rect_filled(
-                ui.ctx().screen_rect(),
-                0.0,
-                Color32::from_black_alpha((180.0 * anim_progress) as u8),
-            );
-        });
+/// Width of a category panel.
+const PANEL_W: f32 = 168.0;
+/// Horizontal gap between panels in the auto-layout grid.
+const GAP: f32 = 14.0;
+/// Height of a panel's draggable title bar.
+const TITLE_H: f32 = 30.0;
+/// Height of a single module row.
+const ROW_H: f32 = 24.0;
+/// Vertical distance between grid rows when panels wrap.
+const ROW_STRIDE: f32 = 320.0;
+/// Top-left corner of the first panel slot.
+const ORIGIN_X: f32 = 40.0;
+const ORIGIN_Y: f32 = 58.0;
 
-    egui::Area::new(Id::new("global_buttons"))
-        .anchor(Align2::RIGHT_TOP, Vec2::new(-10.0, 10.0))
-        .show(ctx, |ui| {
-            ui.set_opacity(anim_progress);
-            ui.horizontal(|ui| {
-                if ui
-                    .button(egui::RichText::new("PANIC").color(Color32::RED))
-                    .clicked()
-                {
-                    std::thread::spawn(|| crate::graphic::ui_engine::call_panic());
-                }
-                ui.add_space(20.0);
-                if ui.button("Reset UI").clicked() {
-                    window_anim_states.clear();
-                    ctx.memory_mut(|mem| mem.reset_areas());
-                    ctx.data_mut(|d| d.clear());
-                }
-            });
-        });
+/// A shared handle to one module.
+type ModuleArc = Arc<Mutex<ModuleType>>;
+/// The whole module registry, as borrowed from the read guard.
+type ModuleMap = HashMap<String, ModuleArc>;
 
-    let client_modules_guard = DarkClient::instance().modules.read().unwrap();
+/// Draws the entire ClickGUI. `progress` is the 0..1 open animation factor.
+pub fn draw(ctx: &Context, progress: f32) {
+    draw_backdrop(ctx, progress);
 
+    let registry = match DarkClient::instance().modules.read() {
+        Ok(guard) => guard,
+        Err(_) => return,
+    };
+
+    // Single lock per module: collect the data layout needs, nothing more.
+    let mut entries: Vec<(String, ModuleCategory)> = registry
+        .values()
+        .map(|arc| {
+            let module = arc.lock().unwrap();
+            let data = module.get_module_data();
+            (data.name.clone(), data.category)
+        })
+        .collect();
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+
+    draw_toolbar(ctx, progress);
+
+    // Auto-layout: place non-empty categories left-to-right, wrapping rows.
     let categories = [
         ModuleCategory::COMBAT,
         ModuleCategory::MOVEMENT,
@@ -50,358 +68,419 @@ pub fn draw(
         ModuleCategory::PLAYER,
         ModuleCategory::WORLD,
     ];
+    let screen_w = ctx.screen_rect().width();
+    let mut slot = Pos2::new(ORIGIN_X, ORIGIN_Y);
 
-    let logical_width = ctx.screen_rect().width();
-
-    let mut curr_x = 50.0;
-    let mut curr_y = 50.0;
-    let win_w = 160.0;
-    let gap_x = 20.0;
-    let row_height = 280.0;
-
-    for category in categories.iter() {
-        if curr_x + win_w > logical_width && curr_x > 50.0 {
-            curr_x = 50.0;
-            curr_y += row_height;
-        }
-        let title = category.display_name();
-
-        let area_id = Id::new(title).with("area");
-
-        let mut target_pos = Pos2::new(curr_x, curr_y);
-        target_pos = ctx
-            .data(|d| d.get_temp::<Pos2>(area_id))
-            .unwrap_or(target_pos);
-
-        let dt = ctx.input(|i| i.stable_dt).min(0.1);
-
-        let win_state = window_anim_states
-            .entry(title.to_string())
-            .or_insert(WindowAnimState {
-                actual_pos: target_pos,
-                velocity: Vec2::ZERO,
-            });
-
-        if anim_progress < 0.01 {
-            win_state.actual_pos = target_pos;
-            win_state.velocity = Vec2::ZERO;
-        } else {
-            let stiffness = 280.0;
-            let damping = 18.0;
-
-            let substeps = 4;
-            let sub_dt = dt / (substeps as f32);
-            for _ in 0..substeps {
-                let displacement = win_state.actual_pos - target_pos;
-                let spring_force = -stiffness * displacement;
-                let damping_force = -damping * win_state.velocity;
-                let acceleration = spring_force + damping_force;
-
-                win_state.velocity += acceleration * sub_dt;
-                win_state.actual_pos += win_state.velocity * sub_dt;
-            }
+    for category in categories {
+        let members: Vec<(String, &ModuleArc)> = entries
+            .iter()
+            .filter(|(_, cat)| *cat == category)
+            .filter_map(|(name, _)| registry.get(name).map(|arc| (name.clone(), arc)))
+            .collect();
+        if members.is_empty() {
+            continue;
         }
 
-        let y_offset_spawn = Vec2::new(0.0, 20.0 * (1.0 - anim_progress));
-        let final_render_pos = win_state.actual_pos + y_offset_spawn;
+        if slot.x + PANEL_W > screen_w - 20.0 && slot.x > ORIGIN_X {
+            slot.x = ORIGIN_X;
+            slot.y += ROW_STRIDE;
+        }
 
-        egui::Area::new(area_id)
-            .current_pos(final_render_pos) // The whole UI draws here
-            .order(egui::Order::Middle)
-            .show(ctx, |ui| {
-                ui.set_opacity(anim_progress);
-
-                let frame = egui::Frame::window(&ctx.style())
-                    .fill(Color32::from_rgb(22, 22, 22))
-                    .stroke(egui::Stroke::new(1.0, Color32::from_rgb(35, 35, 35)))
-                    .rounding(egui::Rounding::ZERO)
-                    .inner_margin(egui::Margin::symmetric(0.0, 0.0));
-
-                frame.show(ui, |ui| {
-                    ui.set_min_width(win_w);
-                    ui.set_max_width(win_w);
-
-                    ui.set_min_height(35.0);
-
-                    // Title Bar
-                    let (title_rect, title_resp) =
-                        ui.allocate_exact_size(Vec2::new(win_w, 24.0), Sense::drag());
-
-                    let is_drag_active = title_resp.dragged() || ui.ctx().is_being_dragged(title_resp.id);
-                    
-                    if is_drag_active {
-                        target_pos += ui.ctx().input(|i| i.pointer.delta());
-                        ctx.data_mut(|d| d.insert_temp(area_id, target_pos));
-                    }
-
-                    // Draw Title text
-                    ui.painter().text(
-                        title_rect.min + Vec2::new(8.0, 5.0),
-                        Align2::LEFT_TOP,
-                        title,
-                        egui::FontId::proportional(14.0),
-                        Color32::from_rgb(26, 171, 138), // Teal Accent for headers
-                    );
-
-                    // Separator line
-                    ui.painter().line_segment(
-                        [title_rect.left_bottom(), title_rect.right_bottom()],
-                        egui::Stroke::new(1.0, Color32::from_rgb(35, 35, 35)),
-                    );
-
-                    let mut cat_modules: Vec<_> = client_modules_guard
-                        .values()
-                        .filter(|m| m.lock().unwrap().get_module_data().category == *category)
-                        .collect();
-                    cat_modules.sort_by(|a, b| {
-                        a.lock()
-                            .unwrap()
-                            .get_module_data()
-                            .name
-                            .cmp(&b.lock().unwrap().get_module_data().name)
-                    });
-
-                    for module in cat_modules {
-                        let (mod_name, is_enabled) = {
-                            let lock = module.lock().unwrap();
-                            let data = lock.get_module_data();
-                            (data.name.clone(), data.enabled)
-                        };
-
-                        let (rect, response) =
-                            ui.allocate_exact_size(Vec2::new(win_w, 22.0), Sense::click());
-
-                        let bg_color = if response.hovered() {
-                            Color32::from_rgb(37, 37, 37)
-                        } else {
-                            Color32::TRANSPARENT
-                        };
-                        ui.painter().rect_filled(rect, Rounding::ZERO, bg_color);
-
-                        let text_color = if is_enabled {
-                            Color32::from_rgb(26, 171, 138)
-                        } else {
-                            Color32::from_rgb(200, 200, 200)
-                        };
-
-                        ui.painter().text(
-                            rect.min + egui::vec2(8.0, 4.0),
-                            egui::Align2::LEFT_TOP,
-                            &mod_name,
-                            egui::FontId::proportional(14.0),
-                            text_color,
-                        );
-
-                        let mut lock = module.lock().unwrap();
-                        let is_expanded_id = Id::new(&mod_name).with("expanded");
-                        let mut is_expanded =
-                            ui.data(|d| d.get_temp::<bool>(is_expanded_id).unwrap_or(false));
-
-                        let arrow_rect =
-                            Rect::from_min_max(rect.max - Vec2::new(25.0, 20.0), rect.max);
-
-                        if response.clicked() {
-                            let click_pos = response.interact_pointer_pos().unwrap_or(Pos2::ZERO);
-                            if response.clicked_by(egui::PointerButton::Secondary)
-                                || (response.clicked_by(egui::PointerButton::Primary)
-                                    && arrow_rect.contains(click_pos))
-                            {
-                                is_expanded = !is_expanded;
-                                ui.data_mut(|d| d.insert_temp(is_expanded_id, is_expanded));
-                            } else if response.clicked_by(egui::PointerButton::Primary) {
-                                let new_state = !is_enabled;
-                                lock.get_module_data_mut().set_enabled(new_state);
-                                if new_state {
-                                    let _ = lock.on_start();
-                                } else {
-                                    let _ = lock.on_stop();
-                                }
-                            }
-                        }
-
-                        let data = lock.get_module_data_mut();
-
-                        if !data.settings.is_empty() {
-                            let arrow = if is_expanded { "v" } else { ">" };
-                            let arrow_color = if arrow_rect
-                                .contains(ui.ctx().pointer_hover_pos().unwrap_or(Pos2::ZERO))
-                            {
-                                Color32::WHITE
-                            } else {
-                                Color32::GRAY
-                            };
-
-                            ui.painter().text(
-                                rect.max - Vec2::new(15.0, 17.0),
-                                egui::Align2::LEFT_TOP,
-                                arrow,
-                                egui::FontId::proportional(14.0),
-                                arrow_color,
-                            );
-
-                            if is_expanded {
-                                let settings_frame = egui::Frame::none()
-                                    .fill(Color32::from_rgb(15, 15, 15))
-                                    .inner_margin(egui::Margin::symmetric(8.0, 6.0));
-
-                                settings_frame.show(ui, |ui| {
-                                    ui.vertical(|ui| {
-                                        ui.style_mut().spacing.slider_width = 60.0;
-                                        ui.style_mut().wrap_mode =
-                                            Some(egui::TextWrapMode::Truncate);
-                                        ui.style_mut().spacing.interact_size.x = 80.0;
-
-                                        // 1. Static Keybind Row
-                                        ui.horizontal(|ui| {
-                                            ui.label("Bind");
-                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                                let mut keybind_str = data.key_bind.to_string();
-                                                let binding_id = ui.id().with(format!("{}_binding", mod_name));
-                                                let is_binding = ui.data(|d| d.get_temp::<bool>(binding_id).unwrap_or(false));
-                                                
-                                                if is_binding {
-                                                    keybind_str = "_".to_string();
-                                                    // Consume any latest key press since they clicked "Bind"
-                                                    let pressed = crate::graphic::input::LAST_KEY_PRESSED.swap(-1, std::sync::atomic::Ordering::Relaxed);
-                                                    if pressed != -1 {
-                                                        let new_key = crate::module::KeyboardKey::from(pressed);
-                                                        
-                                                        if new_key == crate::module::KeyboardKey::KeyEscape {
-                                                            data.key_bind = crate::module::KeyboardKey::KeyNone; // Unbind
-                                                            ui.data_mut(|d| d.insert_temp(binding_id, false));
-                                                        } else {
-                                                            // Check for duplicates
-                                                            let mut is_duplicate = false;
-                                                            let mut duplicate_name = String::new();
-                                                            
-                                                            for other_mod in client_modules_guard.values() {
-                                                                if std::sync::Arc::ptr_eq(module, other_mod) {
-                                                                    continue;
-                                                                }
-                                                                let other_lock = other_mod.lock().unwrap();
-                                                                let other_data = other_lock.get_module_data();
-                                                                if other_data.key_bind == new_key {
-                                                                    is_duplicate = true;
-                                                                    duplicate_name = other_data.name.clone();
-                                                                    break;
-                                                                }
-                                                            }
-                                                            
-                                                            if is_duplicate {
-                                                                crate::graphic::notification::Notification::send(
-                                                                    crate::graphic::notification::NotificationType::Alert,
-                                                                    "Keybind Conflict",
-                                                                    &format!("Cheat '{}' already uses key '{}'", duplicate_name, new_key.to_string())
-                                                                );
-                                                            } else {
-                                                                data.key_bind = new_key;
-                                                                ui.data_mut(|d| d.insert_temp(binding_id, false));
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                                
-                                                // Small clean minimal button for the bind
-                                                let btn = ui.add(egui::Button::new(
-                                                    egui::RichText::new(&keybind_str).color(Color32::from_rgb(160, 160, 160))
-                                                ).fill(Color32::from_rgb(25, 25, 25)).stroke(egui::Stroke::NONE));
-                                                
-                                                if btn.clicked() {
-                                                    // Toggle binding mode
-                                                    let new_state = !is_binding;
-                                                    ui.data_mut(|d| d.insert_temp(binding_id, new_state));
-                                                    if new_state {
-                                                        // Flush any old presses
-                                                        crate::graphic::input::LAST_KEY_PRESSED.store(-1, std::sync::atomic::Ordering::Relaxed);
-                                                    }
-                                                }
-                                            });
-                                        });
-
-                                        for setting in &mut data.settings {
-                                            match setting {
-                                                ModuleSetting::Toggle { name, value } => {
-                                                    ui.checkbox(value, name.as_str());
-                                                }
-                                                ModuleSetting::Slider {
-                                                    name,
-                                                    value,
-                                                    min,
-                                                    max,
-                                                } => {
-                                                    ui.vertical(|ui| {
-                                                        ui.horizontal(|ui| {
-                                                            ui.label(name.as_str());
-                                                            ui.with_layout(
-                                                                egui::Layout::right_to_left(
-                                                                    egui::Align::Center,
-                                                                ),
-                                                                |ui| {
-                                                                    ui.label(format!(
-                                                                        "{:.2}",
-                                                                        value
-                                                                    ));
-                                                                },
-                                                            );
-                                                        });
-                                                        let available_w = ui.available_width();
-                                                        ui.style_mut().spacing.slider_width =
-                                                            available_w;
-                                                        ui.add(
-                                                            egui::Slider::new(
-                                                                value,
-                                                                min.clone()..=max.clone(),
-                                                            )
-                                                            .show_value(false)
-                                                            .text(""),
-                                                        );
-                                                    });
-                                                }
-                                                ModuleSetting::Choice {
-                                                    name,
-                                                    value,
-                                                    options,
-                                                } => {
-                                                    ui.vertical(|ui| {
-                                                        ui.label(name.as_str());
-                                                        egui::ComboBox::from_id_salt(name.as_str())
-                                                            .width(ui.available_width())
-                                                            .selected_text(
-                                                                options
-                                                                    .get(*value)
-                                                                    .map(|s| s.as_str())
-                                                                    .unwrap_or("??"),
-                                                            )
-                                                            .show_ui(ui, |ui| {
-                                                                for (idx, opt) in
-                                                                    options.iter().enumerate()
-                                                                {
-                                                                    ui.selectable_value(
-                                                                        value,
-                                                                        idx,
-                                                                        opt.as_str(),
-                                                                    );
-                                                                }
-                                                            });
-                                                    });
-                                                }
-                                                ModuleSetting::Color { name, .. } => {
-                                                    ui.label(format!(
-                                                        "{}: [Color Settings soon]",
-                                                        name
-                                                    ));
-                                                }
-                                            }
-                                        }
-                                        ui.add_space(5.0);
-                                    });
-                                });
-                            }
-                        }
-                    }
-                });
-            });
-
-        curr_x += win_w + gap_x;
+        draw_panel(ctx, progress, category, &members, slot, &registry);
+        slot.x += PANEL_W + GAP;
     }
+}
+
+/// Dims the game behind the menu, fading with the open animation.
+fn draw_backdrop(ctx: &Context, progress: f32) {
+    let painter = ctx.layer_painter(LayerId::new(Order::Middle, Id::new("clickgui_backdrop")));
+    let alpha = (170.0 * progress) as u8;
+    painter.rect_filled(
+        ctx.screen_rect(),
+        Rounding::ZERO,
+        Color32::from_black_alpha(alpha),
+    );
+}
+
+/// Top-center bar: the brand title plus the Panic / Reset actions.
+fn draw_toolbar(ctx: &Context, progress: f32) {
+    let slide = 16.0 * (1.0 - progress);
+    egui::Area::new(Id::new("clickgui_toolbar"))
+        .order(Order::Foreground)
+        .anchor(Align2::CENTER_TOP, Vec2::new(0.0, 12.0 - slide))
+        .show(ctx, |ui| {
+            ui.set_opacity(progress);
+            egui::Frame::none()
+                .fill(theme::BASE)
+                .stroke(Stroke::new(1.0, theme::BORDER))
+                .rounding(Rounding::same(theme::RADIUS))
+                .inner_margin(Margin::symmetric(12.0, 7.0))
+                .shadow(ui.style().visuals.window_shadow)
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 0.0;
+                        ui.label(RichText::new("Dark").size(15.0).strong().color(theme::TEXT));
+                        ui.label(
+                            RichText::new("Client")
+                                .size(15.0)
+                                .strong()
+                                .color(theme::ACCENT),
+                        );
+                        ui.add_space(16.0);
+
+                        let panic = Button::new(
+                            RichText::new("Panic").size(12.5).color(theme::DANGER),
+                        )
+                        .fill(theme::ELEVATED);
+                        if ui.add(panic).clicked() {
+                            std::thread::spawn(crate::graphic::ui_engine::call_panic);
+                        }
+
+                        ui.add_space(6.0);
+                        let reset = Button::new(
+                            RichText::new("Reset").size(12.5).color(theme::TEXT_DIM),
+                        )
+                        .fill(theme::ELEVATED);
+                        if ui.add(reset).clicked() {
+                            // Drop stored panel targets — they spring back home.
+                            ctx.memory_mut(|mem| mem.reset_areas());
+                            ctx.data_mut(|data| data.clear());
+                        }
+                    });
+                });
+        });
+}
+
+/// Draws one category panel: spring-positioned, draggable, with its rows.
+fn draw_panel(
+    ctx: &Context,
+    progress: f32,
+    category: ModuleCategory,
+    members: &[(String, &ModuleArc)],
+    slot: Pos2,
+    registry: &ModuleMap,
+) {
+    let name = category.display_name();
+
+    // The drag target persists in egui's data store; the spring smooths the
+    // rendered position toward it, frame-rate independently.
+    let target_id = Id::new("panel_target").with(name);
+    let target = ctx.data_mut(|d| *d.get_temp_mut_or_insert_with(target_id, || slot));
+    let pos = anim::spring_pos(ctx, Id::new("panel_pos").with(name), target, SpringCfg::PANEL);
+
+    // Spawn animation: slide the panel up into place as the menu opens.
+    let render_pos = pos + Vec2::new(0.0, 16.0 * (1.0 - progress));
+
+    egui::Area::new(Id::new("clickgui_panel").with(name))
+        .current_pos(render_pos)
+        .order(Order::Foreground)
+        .show(ctx, |ui| {
+            ui.set_opacity(progress);
+            egui::Frame::none()
+                .fill(theme::BASE)
+                .stroke(Stroke::new(1.0, theme::BORDER))
+                .rounding(Rounding::same(theme::RADIUS))
+                .shadow(ui.style().visuals.window_shadow)
+                .show(ui, |ui| {
+                    ui.set_min_width(PANEL_W);
+                    ui.set_max_width(PANEL_W);
+                    draw_title_bar(ui, category, target_id);
+                    for (module_name, arc) in members {
+                        draw_module_row(ui, module_name, arc, registry);
+                    }
+                    ui.add_space(6.0);
+                });
+        });
+}
+
+/// Draggable title bar with the category name and an accent underline.
+fn draw_title_bar(ui: &mut Ui, category: ModuleCategory, target_id: Id) {
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(PANEL_W, TITLE_H), Sense::drag());
+    if response.dragged() {
+        let delta = ui.ctx().input(|i| i.pointer.delta());
+        ui.ctx().data_mut(|d| {
+            let current = d.get_temp::<Pos2>(target_id).unwrap_or(rect.min);
+            d.insert_temp(target_id, current + delta);
+        });
+    }
+
+    let painter = ui.painter();
+    painter.rect_filled(
+        rect,
+        Rounding {
+            nw: theme::RADIUS,
+            ne: theme::RADIUS,
+            sw: 0.0,
+            se: 0.0,
+        },
+        theme::ELEVATED,
+    );
+    painter.text(
+        rect.left_center() + Vec2::new(12.0, 0.0),
+        Align2::LEFT_CENTER,
+        category.display_name(),
+        FontId::proportional(13.5),
+        theme::TEXT,
+    );
+    let underline = Rect::from_min_size(
+        rect.left_bottom() - Vec2::new(0.0, 2.0),
+        Vec2::new(PANEL_W, 2.0),
+    );
+    painter.rect_filled(underline, Rounding::ZERO, theme::ACCENT);
+}
+
+/// Draws a single module row and its (optional) expandable settings panel.
+fn draw_module_row(ui: &mut Ui, name: &str, arc: &ModuleArc, registry: &ModuleMap) {
+    let mut module = arc.lock().unwrap();
+    let enabled = module.get_module_data().enabled;
+    let has_settings = !module.get_module_data().settings.is_empty();
+
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(PANEL_W, ROW_H), Sense::click());
+    let arrow_zone = Rect::from_min_size(
+        Pos2::new(rect.max.x - 24.0, rect.min.y),
+        Vec2::new(24.0, ROW_H),
+    );
+
+    let ctx = ui.ctx();
+    let hover = anim::toggle(ctx, Id::new("row_hov").with(name), response.hovered(), 0.12, Easing::Out);
+    let enable = anim::toggle(ctx, Id::new("row_en").with(name), enabled, 0.18, Easing::Out);
+
+    // --- paint base row ---
+    {
+        let painter = ui.painter();
+        painter.rect_filled(
+            rect,
+            Rounding::ZERO,
+            theme::lerp_color(Color32::TRANSPARENT, theme::SURFACE_HOVER, hover),
+        );
+        if enable > 0.001 {
+            let bar = Rect::from_center_size(
+                Pos2::new(rect.min.x + 1.5, rect.center().y),
+                Vec2::new(3.0, ROW_H * enable),
+            );
+            painter.rect_filled(bar, Rounding::ZERO, theme::ACCENT);
+        }
+        painter.text(
+            Pos2::new(rect.min.x + 12.0, rect.center().y),
+            Align2::LEFT_CENTER,
+            name,
+            FontId::proportional(13.0),
+            theme::lerp_color(theme::TEXT_DIM, theme::TEXT, hover.max(enable)),
+        );
+    }
+
+    // --- interaction ---
+    let expand_id = Id::new("row_exp").with(name);
+    let mut expanded = ui.data(|d| d.get_temp::<bool>(expand_id).unwrap_or(false));
+
+    if response.clicked() || response.secondary_clicked() {
+        let pointer = response.interact_pointer_pos().unwrap_or(Pos2::ZERO);
+        let toggle_settings =
+            has_settings && (response.secondary_clicked() || arrow_zone.contains(pointer));
+        if toggle_settings {
+            expanded = !expanded;
+            ui.data_mut(|d| d.insert_temp(expand_id, expanded));
+        } else if response.clicked() {
+            let next = !enabled;
+            module.get_module_data_mut().set_enabled(next);
+            let _ = if next {
+                module.on_start()
+            } else {
+                module.on_stop()
+            };
+        }
+    }
+
+    // --- chevron + settings ---
+    if has_settings {
+        let expand = anim::toggle(ui.ctx(), expand_id, expanded, 0.2, Easing::InOut);
+        let hovered_arrow = arrow_zone.contains(ui.ctx().pointer_hover_pos().unwrap_or(Pos2::ZERO));
+        let chevron_color = if hovered_arrow { theme::TEXT } else { theme::TEXT_MUTED };
+        paint_chevron(ui.painter(), arrow_zone.center(), expand, chevron_color);
+
+        if expand > 0.001 {
+            draw_settings(ui, module.get_module_data_mut(), expand, arc, registry);
+        }
+    }
+}
+
+/// Draws a chevron that rotates from ▸ (collapsed) to ▾ (expanded).
+fn paint_chevron(painter: &Painter, center: Pos2, open: f32, color: Color32) {
+    const S: f32 = 3.6;
+    let angle = open.clamp(0.0, 1.0) * std::f32::consts::FRAC_PI_2;
+    let (sin, cos) = angle.sin_cos();
+    let rotate = |v: Vec2| Vec2::new(v.x * cos - v.y * sin, v.x * sin + v.y * cos);
+    let points = [
+        Vec2::new(S, 0.0),
+        Vec2::new(-S * 0.7, -S),
+        Vec2::new(-S * 0.7, S),
+    ]
+    .into_iter()
+    .map(|v| center + rotate(v))
+    .collect::<Vec<_>>();
+    painter.add(Shape::convex_polygon(points, color, Stroke::NONE));
+}
+
+/// Renders the keybind row and every [`ModuleSetting`] of an expanded module.
+fn draw_settings(
+    ui: &mut Ui,
+    data: &mut ModuleData,
+    fade: f32,
+    arc: &ModuleArc,
+    registry: &ModuleMap,
+) {
+    egui::Frame::none()
+        .fill(theme::SURFACE)
+        .inner_margin(Margin::symmetric(10.0, 8.0))
+        .show(ui, |ui| {
+            ui.set_opacity(fade);
+            ui.set_min_width(PANEL_W - 20.0);
+            ui.set_max_width(PANEL_W - 20.0);
+            ui.spacing_mut().item_spacing.y = 7.0;
+
+            keybind_row(ui, data, arc, registry);
+
+            for setting in &mut data.settings {
+                match setting {
+                    ModuleSetting::Toggle { name, value } => {
+                        ui.checkbox(value, label(name));
+                    }
+                    ModuleSetting::Slider {
+                        name,
+                        value,
+                        min,
+                        max,
+                    } => {
+                        labelled_value(ui, name, &format!("{value:.2}"));
+                        ui.spacing_mut().slider_width = ui.available_width();
+                        ui.add(egui::Slider::new(value, *min..=*max).show_value(false));
+                    }
+                    ModuleSetting::Choice {
+                        name,
+                        value,
+                        options,
+                    } => {
+                        ui.label(label(name));
+                        egui::ComboBox::from_id_salt(Id::new("choice").with(name.as_str()))
+                            .width(ui.available_width())
+                            .selected_text(
+                                RichText::new(
+                                    options.get(*value).map(String::as_str).unwrap_or("—"),
+                                )
+                                .size(12.0),
+                            )
+                            .show_ui(ui, |ui| {
+                                for (idx, option) in options.iter().enumerate() {
+                                    ui.selectable_value(value, idx, option.as_str());
+                                }
+                            });
+                    }
+                    ModuleSetting::Color { name, value } => {
+                        ui.horizontal(|ui| {
+                            ui.label(label(name));
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                let mut rgba = egui::Rgba::from_rgba_unmultiplied(
+                                    value[0], value[1], value[2], value[3],
+                                );
+                                let changed = egui::color_picker::color_edit_button_rgba(
+                                    ui,
+                                    &mut rgba,
+                                    egui::color_picker::Alpha::OnlyBlend,
+                                )
+                                .changed();
+                                if changed {
+                                    *value = rgba.to_array();
+                                }
+                            });
+                        });
+                    }
+                }
+            }
+            ui.add_space(1.0);
+        });
+}
+
+/// The "Bind" row: click the button, then press a key (Esc unbinds).
+fn keybind_row(ui: &mut Ui, data: &mut ModuleData, arc: &ModuleArc, registry: &ModuleMap) {
+    ui.horizontal(|ui| {
+        ui.label(label("Bind"));
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            let bind_id = Id::new("kb_listen").with(data.name.as_str());
+            let listening = ui.data(|d| d.get_temp::<bool>(bind_id).unwrap_or(false));
+
+            let caption = if listening {
+                if capture_keybind(data, arc, registry) {
+                    ui.data_mut(|d| d.insert_temp(bind_id, false));
+                }
+                "press…".to_string()
+            } else {
+                data.key_bind.to_string()
+            };
+
+            let color = if listening { theme::ACCENT } else { theme::TEXT_DIM };
+            let button = Button::new(RichText::new(caption).size(12.0).color(color))
+                .fill(theme::ELEVATED)
+                .stroke(Stroke::NONE);
+            if ui.add(button).clicked() {
+                let next = !listening;
+                ui.data_mut(|d| d.insert_temp(bind_id, next));
+                if next {
+                    LAST_KEY_PRESSED.store(-1, Ordering::Relaxed);
+                }
+            }
+        });
+    });
+}
+
+/// Consumes the latest key press while in bind mode.
+///
+/// Returns `true` when listening should stop — a key was applied, the module
+/// was unbound, or the chosen key was rejected as a duplicate.
+fn capture_keybind(data: &mut ModuleData, arc: &ModuleArc, registry: &ModuleMap) -> bool {
+    let pressed = LAST_KEY_PRESSED.swap(-1, Ordering::Relaxed);
+    if pressed == -1 {
+        return false;
+    }
+    let key = KeyboardKey::from(pressed);
+
+    if key == KeyboardKey::KeyEscape {
+        data.key_bind = KeyboardKey::KeyNone;
+        return true;
+    }
+
+    // Reject keys already taken by another module.
+    for other in registry.values() {
+        if Arc::ptr_eq(arc, other) {
+            continue;
+        }
+        let owner = other.lock().unwrap();
+        if owner.get_module_data().key_bind == key {
+            let owner_name = owner.get_module_data().name.clone();
+            drop(owner);
+            Notification::send(
+                NotificationType::Warning,
+                "Keybind in use",
+                &format!("'{}' is bound to {}", owner_name, key.to_string()),
+            );
+            return true;
+        }
+    }
+
+    data.key_bind = key;
+    true
+}
+
+/// A dimmed 12px setting label.
+fn label(text: &str) -> RichText {
+    RichText::new(text).size(12.0).color(theme::TEXT_DIM)
+}
+
+/// Draws a `name … value` row, value accented and right-aligned.
+fn labelled_value(ui: &mut Ui, name: &str, value: &str) {
+    ui.horizontal(|ui| {
+        ui.label(label(name));
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            ui.label(RichText::new(value).size(12.0).color(theme::ACCENT));
+        });
+    });
 }

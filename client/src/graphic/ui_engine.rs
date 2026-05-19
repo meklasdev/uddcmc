@@ -4,15 +4,9 @@ use crate::graphic::input::{GUI_OPEN, MOUSE_STATE};
 use egui::Context;
 use egui_glow::Painter;
 use lazy_static::lazy_static;
-use std::collections::HashMap;
 use std::sync::atomic::Ordering;
-use std::sync::Mutex;
-
-#[derive(Clone, Copy)]
-pub struct WindowAnimState {
-    pub actual_pos: egui::Pos2,
-    pub velocity: egui::Vec2,
-}
+use std::sync::{Mutex, OnceLock};
+use std::time::Instant;
 
 pub struct EguiState {
     pub ctx: Context,
@@ -20,11 +14,20 @@ pub struct EguiState {
     pub last_left_down: bool,
     pub last_right_down: bool,
     pub last_mouse_pos: egui::Pos2,
-    pub window_anim_states: HashMap<String, WindowAnimState>,
 }
 
 lazy_static! {
     pub static ref EGUI_STATE: Mutex<Option<EguiState>> = Mutex::new(None);
+}
+
+/// Monotonic seconds since the overlay first rendered.
+///
+/// Fed to egui as `RawInput::time` so its clock tracks wall time instead of a
+/// fixed predicted delta — the cure for animations stuttering when Minecraft
+/// paces frames irregularly (most visibly while the game is paused).
+fn elapsed_seconds() -> f64 {
+    static START: OnceLock<Instant> = OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_secs_f64()
 }
 
 pub fn gather_egui_inputs(
@@ -34,6 +37,7 @@ pub fn gather_egui_inputs(
     scale_factor: f32,
 ) -> egui::RawInput {
     let mut raw_input = egui::RawInput::default();
+    raw_input.time = Some(elapsed_seconds());
 
     let mut viewport_info = egui::ViewportInfo::default();
     viewport_info.native_pixels_per_point = Some(scale_factor);
@@ -110,6 +114,10 @@ pub unsafe fn render_egui_ui() {
         let fonts = egui::FontDefinitions::default();
         ctx.set_fonts(fonts);
 
+        // Install the overlay theme once — egui stores the style in an Arc,
+        // so there is no reason to rebuild it every frame.
+        crate::graphic::theme::apply(&ctx);
+
         unsafe {
             crate::gl::PixelStorei(crate::gl::UNPACK_ALIGNMENT, 1);
             crate::gl::PixelStorei(crate::gl::UNPACK_ROW_LENGTH, 0);
@@ -125,7 +133,6 @@ pub unsafe fn render_egui_ui() {
             last_left_down: false,
             last_right_down: false,
             last_mouse_pos: egui::pos2(0.0, 0.0),
-            window_anim_states: HashMap::new(),
         });
     }
 
@@ -135,7 +142,7 @@ pub unsafe fn render_egui_ui() {
     let ctx = state.ctx.clone();
 
     let full_output = ctx.run(raw_input, |ctx| {
-        crate::graphic::gui::render_all(ctx, &mut state.window_anim_states);
+        crate::graphic::gui::render_all(ctx);
     });
 
     let clipped_primitives = state
