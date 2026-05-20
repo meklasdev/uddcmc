@@ -1,9 +1,11 @@
 use crate::client::DarkClient;
-use crate::mapping::class::MinecraftClass;
+use crate::mapping::class::{Method, MethodHandle, MinecraftClass};
 pub use crate::mapping::class_type::MinecraftClassType;
 use crate::mapping::client::minecraft::Minecraft;
 use crate::mapping::minecraft_version::MinecraftVersion;
-use jni::objects::{GlobalRef, JObject, JString, JValue, JValueOwned};
+use jni::objects::{GlobalRef, JClass, JMethodID, JObject, JString, JValue, JValueOwned};
+use jni::signature::{Primitive, ReturnType};
+use jni::sys::jvalue;
 use jni::JNIEnv;
 use log::{error, info};
 use serde::Deserialize;
@@ -55,6 +57,14 @@ pub struct Mapping {
     /// In obfuscated mode every class is present up-front; in reflected mode
     /// classes are discovered and cached on first use.
     classes: RwLock<HashMap<String, Arc<MinecraftClass>>>,
+    /// The class loader that loaded Minecraft, captured the first time a class
+    /// resolves. `JNIEnv::find_class` is classloader-sensitive and only works
+    /// from threads with a Minecraft Java frame on the stack; routing every
+    /// later lookup through this loader makes resolution thread-independent.
+    class_loader: RwLock<Option<GlobalRef>>,
+    /// Cache of resolved JVM classes — and known-missing ones (`None`) — keyed
+    /// by JNI name, so a class is searched for at most once.
+    class_handles: RwLock<HashMap<String, Option<GlobalRef>>>,
 }
 
 #[allow(dead_code)]
@@ -117,6 +127,8 @@ impl Mapping {
                 mode: Mode::Reflected,
                 version: MinecraftVersion::LATEST,
                 classes: RwLock::new(HashMap::new()),
+                class_loader: RwLock::new(None),
+                class_handles: RwLock::new(HashMap::new()),
             });
         }
 
@@ -139,6 +151,8 @@ impl Mapping {
             mode: Mode::Obfuscated,
             version: file.version,
             classes: RwLock::new(classes),
+            class_loader: RwLock::new(None),
+            class_handles: RwLock::new(HashMap::new()),
         })
     }
 
@@ -164,12 +178,109 @@ impl Mapping {
         match self.mode {
             Mode::Obfuscated => Err(anyhow::anyhow!("{} java class not found", name)),
             Mode::Reflected => {
-                let class = Arc::new(reflect::reflect_class(name)?);
+                let class = Arc::new(reflect::reflect_class(self, name)?);
                 self.classes
                     .write()
                     .unwrap()
                     .insert(name.to_owned(), Arc::clone(&class));
                 Ok(class)
+            }
+        }
+    }
+
+    /// Resolves a JVM class by its JNI name, working from any thread.
+    ///
+    /// `JNIEnv::find_class` resolves against the class loader of the calling
+    /// thread; on a thread with no Minecraft Java frame on its stack (the
+    /// render thread, for instance) it cannot see `net.minecraft.*` classes.
+    /// Once the Minecraft class loader has been captured every lookup goes
+    /// through `ClassLoader.loadClass` on it instead.
+    ///
+    /// Results — hits *and* misses — are cached: a repeated lookup is one map
+    /// read, and a missing class is never searched twice (a failed `loadClass`
+    /// walks the whole classpath, ruinously slow to repeat per entity).
+    pub(crate) fn resolve_class<'a>(
+        &self,
+        env: &mut JNIEnv<'a>,
+        jni_name: &str,
+    ) -> anyhow::Result<JClass<'a>> {
+        if let Some(cached) = self.class_handles.read().unwrap().get(jni_name).cloned() {
+            return match cached {
+                Some(handle) => Ok(JClass::from(env.new_local_ref(handle.as_obj())?)),
+                None => Err(anyhow::anyhow!("Class {} not present at runtime", jni_name)),
+            };
+        }
+
+        let resolved = self.lookup_class(env, jni_name);
+        let handle = match &resolved {
+            Ok(jclass) => env.new_global_ref(jclass).ok(),
+            Err(_) => None,
+        };
+        if handle.is_none() {
+            log::warn!(
+                "Mapping: class '{}' could not be resolved at runtime",
+                jni_name
+            );
+        }
+        self.class_handles
+            .write()
+            .unwrap()
+            .insert(jni_name.to_owned(), handle);
+        resolved
+    }
+
+    /// Looks a class up from scratch: through the captured Minecraft class
+    /// loader if available, otherwise through `find_class`.
+    fn lookup_class<'a>(
+        &self,
+        env: &mut JNIEnv<'a>,
+        jni_name: &str,
+    ) -> anyhow::Result<JClass<'a>> {
+        if let Some(loader) = self.class_loader.read().unwrap().clone() {
+            let binary_name = jni_name.replace('/', ".");
+            let name: JObject = env.new_string(binary_name)?.into();
+            return match env.call_method(
+                loader.as_obj(),
+                "loadClass",
+                "(Ljava/lang/String;)Ljava/lang/Class;",
+                &[JValue::Object(&name)],
+            ) {
+                Ok(value) => Ok(JClass::from(value.l()?)),
+                Err(_) => {
+                    let _ = env.exception_clear();
+                    Err(anyhow::anyhow!("Class {} not found at runtime", jni_name))
+                }
+            };
+        }
+
+        // No loader captured yet: fall back to `find_class` and remember the
+        // loader that resolved it for every later lookup.
+        match env.find_class(jni_name) {
+            Ok(jclass) => {
+                self.capture_class_loader(env, &jclass);
+                Ok(jclass)
+            }
+            Err(_) => {
+                let _ = env.exception_clear();
+                Err(anyhow::anyhow!("Class {} not found at runtime", jni_name))
+            }
+        }
+    }
+
+    /// Records the class loader of `jclass` as the Minecraft class loader.
+    fn capture_class_loader(&self, env: &mut JNIEnv, jclass: &JClass) {
+        if self.class_loader.read().unwrap().is_some() {
+            return;
+        }
+        let loader = env.call_method(jclass, "getClassLoader", "()Ljava/lang/ClassLoader;", &[]);
+        match loader.and_then(|value| value.l()) {
+            Ok(obj) if !obj.is_null() => {
+                if let Ok(global) = env.new_global_ref(obj) {
+                    *self.class_loader.write().unwrap() = Some(global);
+                }
+            }
+            _ => {
+                let _ = env.exception_clear();
             }
         }
     }
@@ -277,17 +388,7 @@ impl Mapping {
         let mut env = self.get_env()?;
 
         let class = self.get_class(class_type.get_name())?;
-        let jclass = match env.find_class(&class.name) {
-            Ok(jclass) => jclass,
-            Err(_) => {
-                let _ = env.exception_clear();
-                return Err(anyhow::anyhow!(
-                    "Class {} ({}) not found",
-                    class_type.get_name(),
-                    class.name
-                ));
-            }
-        };
+        let jclass = self.resolve_class(&mut env, &class.name)?;
         let method = class.get_method_by_args(method_name, args)?;
         match env.call_static_method(jclass, &method.name, &method.signature, args) {
             Ok(value) => Ok(value),
@@ -318,7 +419,24 @@ impl Mapping {
 
         let class = self.get_class(class_type.get_name())?;
         let method = class.get_method_by_args(method_name, args)?;
-        match env.call_method(instance, &method.name, &method.signature, args) {
+
+        // `call_method_unchecked` does not validate arity — so guard it here,
+        // since `get_method_by_args` skips that check for single-overload
+        // methods.
+        if signature_arg_count(&method.signature) != args.len() {
+            return Err(anyhow::anyhow!(
+                "Argument count mismatch calling {} ({}) — signature {}",
+                method_name,
+                method.name,
+                method.signature
+            ));
+        }
+
+        let method_id = self.resolve_method_id(&mut env, class_type, method)?;
+        let return_type = parse_return_type(&method.signature);
+        let jni_args: Vec<jvalue> = args.iter().map(|arg| arg.as_jni()).collect();
+
+        match unsafe { env.call_method_unchecked(instance, method_id, return_type, &jni_args) } {
             Ok(value) => Ok(value),
             Err(_) => {
                 let _ = env.exception_clear();
@@ -336,6 +454,36 @@ impl Mapping {
         }
     }
 
+    /// Resolves the JNI method id for `method`, caching it on the `Method` so
+    /// the costly name+signature lookup happens only once per method.
+    fn resolve_method_id(
+        &self,
+        env: &mut JNIEnv,
+        class_type: MinecraftClassType,
+        method: &Method,
+    ) -> anyhow::Result<JMethodID> {
+        if let Some(handle) = method.id.get() {
+            return Ok(unsafe { JMethodID::from_raw(handle.0) });
+        }
+
+        let class_name = self.runtime_class_name(class_type)?;
+        let jclass = self.resolve_class(env, &class_name)?;
+        let id = match env.get_method_id(&jclass, &method.name, &method.signature) {
+            Ok(id) => id,
+            Err(_) => {
+                let _ = env.exception_clear();
+                return Err(anyhow::anyhow!(
+                    "Method {} {} not found on class {}",
+                    method.name,
+                    method.signature,
+                    class_name
+                ));
+            }
+        };
+        let _ = method.id.set(MethodHandle(id.into_raw()));
+        Ok(id)
+    }
+
     pub fn get_static_field(
         &'_ self,
         class_type: MinecraftClassType,
@@ -345,17 +493,7 @@ impl Mapping {
         let mut env = self.get_env()?;
 
         let class_name = self.runtime_class_name(class_type)?;
-        let jclass = match env.find_class(&class_name) {
-            Ok(jclass) => jclass,
-            Err(_) => {
-                let _ = env.exception_clear();
-                return Err(anyhow::anyhow!(
-                    "Class {} ({}) not found",
-                    class_type.get_name(),
-                    class_name
-                ));
-            }
-        };
+        let jclass = self.resolve_class(&mut env, &class_name)?;
         let runtime_field = self.runtime_field_name(class_type, field_name)?;
         match env.get_static_field(jclass, &runtime_field, field_type.get_signature()?) {
             Ok(value) => Ok(value),
@@ -444,19 +582,8 @@ impl Mapping {
     ) -> anyhow::Result<bool> {
         let mut env = self.get_env()?;
         let class_name = self.runtime_class_name(class_type)?;
-        let jclass = match env.find_class(&class_name) {
-            Ok(jclass) => jclass,
-            Err(_) => {
-                let _ = env.exception_clear();
-                return Err(anyhow::anyhow!(
-                    "Class {} ({}) not found",
-                    class_type.get_name(),
-                    class_name
-                ));
-            }
-        };
-
-        Ok(env.is_instance_of(instance, jclass)?)
+        let jclass = self.resolve_class(&mut env, &class_name)?;
+        Ok(env.is_instance_of(instance, &jclass)?)
     }
 }
 
@@ -466,5 +593,54 @@ impl Default for Mapping {
             error!("Failed to load mappings");
             panic!("Failed to load mappings");
         })
+    }
+}
+
+/// Number of parameters in a JNI method signature, e.g. `(ILjava/lang/String;)V`
+/// has 2. Used to guard the unchecked call path against arity mismatches.
+fn signature_arg_count(signature: &str) -> usize {
+    let params = match (signature.find('('), signature.find(')')) {
+        (Some(open), Some(close)) if open < close => &signature[open + 1..close],
+        // Unparseable: return a count that can never match a real call.
+        _ => return usize::MAX,
+    };
+
+    let mut count = 0;
+    let mut chars = params.chars();
+    while let Some(ch) = chars.next() {
+        match ch {
+            // Array prefix — the descriptor it belongs to is counted next.
+            '[' => continue,
+            // Object descriptor runs until its terminating ';'.
+            'L' => {
+                for inner in chars.by_ref() {
+                    if inner == ';' {
+                        break;
+                    }
+                }
+                count += 1;
+            }
+            // Any primitive.
+            _ => count += 1,
+        }
+    }
+    count
+}
+
+/// Maps the return descriptor of a JNI signature to a [`ReturnType`].
+fn parse_return_type(signature: &str) -> ReturnType {
+    let return_descriptor = signature.rsplit(')').next().unwrap_or("V");
+    match return_descriptor.chars().next() {
+        Some('Z') => ReturnType::Primitive(Primitive::Boolean),
+        Some('B') => ReturnType::Primitive(Primitive::Byte),
+        Some('C') => ReturnType::Primitive(Primitive::Char),
+        Some('S') => ReturnType::Primitive(Primitive::Short),
+        Some('I') => ReturnType::Primitive(Primitive::Int),
+        Some('J') => ReturnType::Primitive(Primitive::Long),
+        Some('F') => ReturnType::Primitive(Primitive::Float),
+        Some('D') => ReturnType::Primitive(Primitive::Double),
+        Some('[') => ReturnType::Array,
+        Some('L') => ReturnType::Object,
+        _ => ReturnType::Primitive(Primitive::Void),
     }
 }

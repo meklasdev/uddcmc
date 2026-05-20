@@ -18,6 +18,9 @@ use log::{error, info, LevelFilter};
 use module::combat::aimbot::AimbotModule;
 use module::combat::killaura::KillAuraModule;
 use module::movement::fly::FlyModule;
+use module::render::chest_esp::ChestEspModule;
+use module::render::mob_esp::MobEspModule;
+use module::render::player_esp::PlayerEspModule;
 use simplelog::{Config, WriteLogger};
 use std::fs::File;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -99,4 +102,7 @@ fn register_modules() {
     client.register_module(KillAuraModule::new());
     client.register_module(MobAuraModule::new());
     client.register_module(AimbotModule::new());
+    client.register_module(PlayerEspModule::new());
+    client.register_module(MobEspModule::new());
+    client.register_module(ChestEspModule::new());
 }

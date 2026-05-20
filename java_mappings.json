@@ -22,5 +22,25 @@
       }
     },
     "fields": {}
+  },
+  "java/util/Map": {
+    "name": "java/util/Map",
+    "methods": {
+      "values": {
+        "name": "values",
+        "signature": "()Ljava/util/Collection;"
+      }
+    },
+    "fields": {}
+  },
+  "java/lang/Integer": {
+    "name": "java/lang/Integer",
+    "methods": {
+      "intValue": {
+        "name": "intValue",
+        "signature": "()I"
+      }
+    },
+    "fields": {}
   }
 }

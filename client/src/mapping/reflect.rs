@@ -8,22 +8,17 @@
 
 use crate::client::DarkClient;
 use crate::mapping::class::{Method, MinecraftClass};
+use crate::mapping::Mapping;
 use jni::objects::{JObject, JObjectArray, JString};
 use jni::JNIEnv;
 use std::collections::HashMap;
 
 /// Reflects every method declared on — or inherited as public by —
 /// `class_name`, returning it as a [`MinecraftClass`].
-pub fn reflect_class(class_name: &str) -> anyhow::Result<MinecraftClass> {
+pub fn reflect_class(mapping: &Mapping, class_name: &str) -> anyhow::Result<MinecraftClass> {
     let mut env = DarkClient::instance().get_env()?;
 
-    let jclass: JObject = env
-        .find_class(class_name)
-        .map_err(|_| {
-            let _ = env.exception_clear();
-            anyhow::anyhow!("Class {} not found at runtime", class_name)
-        })?
-        .into();
+    let jclass: JObject = mapping.resolve_class(&mut env, class_name)?.into();
 
     let mut methods: HashMap<String, Vec<Method>> = HashMap::new();
 
@@ -60,7 +55,11 @@ fn collect_methods(
 
         let overloads = out.entry(name.clone()).or_default();
         if !overloads.iter().any(|m| m.signature == signature) {
-            overloads.push(Method { name, signature });
+            overloads.push(Method {
+                name,
+                signature,
+                id: std::sync::OnceLock::new(),
+            });
         }
     }
     Ok(())

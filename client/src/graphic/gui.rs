@@ -7,12 +7,15 @@
 
 use crate::graphic::anim::{self, Easing};
 use crate::graphic::input::GUI_OPEN;
-use crate::graphic::{hud, menu, notification};
+use crate::graphic::{esp, hud, menu, notification};
 use egui::{Context, Id};
 use std::sync::atomic::Ordering;
 
 /// Renders the whole overlay for a single frame.
 pub fn render_all(ctx: &Context) {
+    // World-space ESP sits underneath every piece of 2D UI.
+    esp::draw(ctx);
+
     hud::draw(ctx);
 
     // A single tween turns the open/close toggle into the 0..1 factor the

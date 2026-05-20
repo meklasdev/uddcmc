@@ -6,6 +6,7 @@ use serde::de::{MapAccess, Visitor};
 use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
 use std::fmt;
+use std::sync::OnceLock;
 
 /// Custom deserializer that handles both single Method and Vec<Method> formats
 fn deserialize_methods<'de, D>(deserializer: D) -> Result<HashMap<String, Vec<Method>>, D::Error>
@@ -68,7 +69,20 @@ pub struct MinecraftClass {
 pub struct Method {
     pub name: String,
     pub signature: String,
+    /// JNI method id, resolved on first call and cached here. The id is stable
+    /// for the life of the JVM, so this turns every later call into a direct
+    /// invocation with no name/signature lookup.
+    #[serde(skip)]
+    pub id: OnceLock<MethodHandle>,
 }
+
+/// A cached JNI `jmethodID`. The id is a stable handle, valid from any thread
+/// for as long as its class stays loaded, so sharing it is sound.
+#[derive(Debug, Clone, Copy)]
+pub struct MethodHandle(pub jni::sys::jmethodID);
+
+unsafe impl Send for MethodHandle {}
+unsafe impl Sync for MethodHandle {}
 
 /// Represents a field with its obfuscated name
 #[derive(Debug, Deserialize)]
@@ -510,6 +524,11 @@ impl MinecraftClass {
         } else {
             None
         }
+    }
+
+    /// Names of every mapped method — for diagnostics only.
+    pub fn method_names(&self) -> Vec<String> {
+        self.methods.keys().cloned().collect()
     }
 
     pub fn get_field(&self, name: &str) -> anyhow::Result<&Field> {
