@@ -1,15 +1,32 @@
 // build.rs
-// This build script is only relevant on Windows with MSVC toolchain.
-// It finds the `jvm.lib` import library that is required to link JNI functions.
-// On Linux, this is unnecessary because the linker can directly use libjvm.so.
+// Generates the OpenGL bindings (`bindings.rs`) on every platform.
+// On Windows (MSVC) it additionally locates the `jvm.lib` import library
+// required to link JNI functions; on Linux the linker uses libjvm.so directly.
 
 use gl_generator::{Api, Fallbacks, GlobalGenerator, Profile, Registry};
 use std::env;
 use std::fs::File;
 use std::path::Path;
 
-#[cfg(windows)]
 fn main() {
+    // Generate the OpenGL bindings on every platform — `lib.rs` `include!`s
+    // `bindings.rs` unconditionally.
+    let dest = env::var("OUT_DIR").unwrap();
+    let mut file = File::create(Path::new(&dest).join("bindings.rs")).unwrap();
+
+    // Ask for OpenGL 3.3 Compatibility so we get VAOs (GenVertexArrays) and modern shader API
+    Registry::new(Api::Gl, (3, 3), Profile::Compatibility, Fallbacks::All, [])
+        .write_bindings(GlobalGenerator, &mut file)
+        .unwrap();
+
+    #[cfg(windows)]
+    find_jvm_lib();
+}
+
+#[cfg(windows)]
+// Finds the `jvm.lib` import library that is required to link JNI functions on
+// the MSVC toolchain. On Linux the linker can use libjvm.so directly.
+fn find_jvm_lib() {
     use std::path::PathBuf;
     use std::{env, fs};
 
@@ -71,17 +88,6 @@ fn main() {
     - Set JAVA_HOME to your JDK root (e.g. C:\\Program Files\\Java\\jdk-21)
     - Or set JVM_LIB_DIR directly to the folder containing jvm.lib"
     );
-}
-
-#[cfg(not(windows))]
-fn main() {
-    let dest = env::var("OUT_DIR").unwrap();
-    let mut file = File::create(&Path::new(&dest).join("bindings.rs")).unwrap();
-
-    // Ask for OpenGL 3.3 Compatibility so we get VAOs (GenVertexArrays) and modern shader API
-    Registry::new(Api::Gl, (3, 3), Profile::Compatibility, Fallbacks::All, [])
-        .write_bindings(GlobalGenerator, &mut file)
-        .unwrap();
 }
 
 #[cfg(windows)]
