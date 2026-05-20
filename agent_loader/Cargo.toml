@@ -13,9 +13,9 @@ default = ["ctor/used_linker"]
 used_linker = []
 
 [dependencies]
-ctor = "0.2.8"
-log = "0.4.25"
-simplelog = "0.12.2"
+ctor.workspace = true
+log.workspace = true
+simplelog.workspace = true
+jni.workspace = true
+libc.workspace = true
 libloading = "0.8.0"
-jni = "0.21"
-libc = "0.2"

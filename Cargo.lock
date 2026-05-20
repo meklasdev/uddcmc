@@ -2541,6 +2541,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "protocol"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "simplelog",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "ptrace-inject"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
