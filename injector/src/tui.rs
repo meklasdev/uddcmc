@@ -1,121 +1,115 @@
-use crate::platform;
-use crate::platform::ProcessInfo;
+//! Terminal fallback front-end (`--tui`), built on the shared [`InjectorApp`].
+
+use std::io::{stdout, Stdout};
+use std::time::Duration;
+
+use crossterm::event::{self, Event, KeyCode};
 use crossterm::style::{Color, ResetColor, SetForegroundColor};
-use crossterm::terminal::{Clear, ClearType};
-use crossterm::{
-    cursor,
-    event::{self, Event, KeyCode},
-    execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen},
-};
-use std::io::stdout;
+use crossterm::terminal::{Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen};
+use crossterm::{cursor, execute};
 
-enum AppState {
-    Menu,
-    Selecting,
-    Done(String),
-    Error(String),
-}
+use crate::app::{InjectionStatus, InjectorApp};
 
+/// How long each loop iteration waits for a key before redrawing — also the
+/// cadence at which an in-flight injection result is picked up.
+const POLL_INTERVAL: Duration = Duration::from_millis(120);
+
+/// Runs the text UI until the user quits.
 pub fn run_tui() {
-    let mut stdout = stdout();
-    execute!(stdout, EnterAlternateScreen, cursor::Hide).unwrap();
+    let mut out = stdout();
+    let _ = execute!(out, EnterAlternateScreen, cursor::Hide);
 
-    println!("DarkClient Injector (TUI)");
-    println!("Press 'f' to find the PID, 'i' to inject, 'q' to quit.");
-
-    let mut state = AppState::Menu;
-    let mut processes: Vec<ProcessInfo> = Vec::new();
-    let mut selected_index = 0;
+    let mut app = InjectorApp::new();
+    app.scan();
+    let mut cursor_row = 0usize;
 
     loop {
-        // Render Loop
-        execute!(stdout, Clear(ClearType::All), cursor::MoveTo(0, 0)).unwrap();
+        app.poll();
+        clamp_cursor(&app, &mut cursor_row);
+        render(&mut out, &app, cursor_row);
 
-        println!("=== DarkClient Injector (TUI) ===");
-
-        match &state {
-            AppState::Menu => {
-                println!("Press 's' to scan for Minecraft processes.");
-                println!("Press 'q' to quit.");
+        match read_key(POLL_INTERVAL) {
+            Some(KeyCode::Char('q')) | Some(KeyCode::Esc) => break,
+            Some(KeyCode::Char('s')) | Some(KeyCode::Char('r')) => {
+                app.scan();
+                cursor_row = 0;
             }
-            AppState::Selecting => {
-                if processes.is_empty() {
-                    println!("No processes found. Press 'r' to rescan or 'b' to back.");
-                } else {
-                    println!("Select a process using Up/Down arrows and Enter:");
-                    for (i, proc) in processes.iter().enumerate() {
-                        if i == selected_index {
-                            execute!(stdout, SetForegroundColor(Color::Green)).unwrap();
-                            print!("> ");
-                        } else {
-                            print!("  ");
-                        }
-                        println!("PID: {} | Info: {}", proc.pid, proc.info);
-                        execute!(stdout, ResetColor).unwrap();
-                    }
+            Some(KeyCode::Up) => cursor_row = cursor_row.saturating_sub(1),
+            Some(KeyCode::Down) => {
+                let last = app.processes().len().saturating_sub(1);
+                cursor_row = (cursor_row + 1).min(last);
+            }
+            Some(KeyCode::Enter) => {
+                if let Some(proc) = app.processes().get(cursor_row) {
+                    app.select(proc.pid);
+                    app.start_injection();
                 }
             }
-            AppState::Done(msg) => {
-                execute!(stdout, SetForegroundColor(Color::Green)).unwrap();
-                println!("SUCCESS: {}", msg);
-                execute!(stdout, ResetColor).unwrap();
-                println!("Press any key to return to menu.");
-            }
-            AppState::Error(err) => {
-                execute!(stdout, SetForegroundColor(Color::Red)).unwrap();
-                println!("ERROR: {}", err);
-                execute!(stdout, ResetColor).unwrap();
-                println!("Press any key to return to menu.");
-            }
+            _ => {}
         }
+    }
 
-        // Event Loop
-        if event::poll(std::time::Duration::from_millis(100)).unwrap() {
-            if let Event::Key(key) = event::read().unwrap() {
-                match state {
-                    AppState::Menu => match key.code {
-                        KeyCode::Char('q') => break,
-                        KeyCode::Char('s') => {
-                            processes = platform::find_minecraft_processes();
-                            selected_index = 0;
-                            state = AppState::Selecting;
-                        }
-                        _ => {}
-                    },
-                    AppState::Selecting => match key.code {
-                        KeyCode::Char('b') => state = AppState::Menu,
-                        KeyCode::Char('r') => processes = platform::find_minecraft_processes(),
-                        KeyCode::Up if selected_index > 0 => {
-                            selected_index -= 1;
-                        }
-                        KeyCode::Down
-                            if !processes.is_empty() && selected_index < processes.len() - 1 =>
-                        {
-                            selected_index += 1;
-                        }
-                        KeyCode::Enter if !processes.is_empty() => {
-                            let pid = processes[selected_index].pid;
+    let _ = execute!(out, LeaveAlternateScreen, cursor::Show);
+    println!("Exited DarkClient Injector.");
+}
 
-                            // Render the injection status.
-                            execute!(stdout, Clear(ClearType::All), cursor::MoveTo(0, 0)).unwrap();
-                            println!("Injecting into PID {}...", pid);
+/// Keeps the highlighted row within the current process list.
+fn clamp_cursor(app: &InjectorApp, cursor_row: &mut usize) {
+    let len = app.processes().len();
+    *cursor_row = (*cursor_row).min(len.saturating_sub(1));
+}
 
-                            match crate::inject::inject(pid) {
-                                Ok(_) => state = AppState::Done(format!("Injected into {}", pid)),
-                                Err(e) => state = AppState::Error(e.to_string()),
-                            }
-                        }
-                        _ => {}
-                    },
-                    AppState::Done(_) | AppState::Error(_) => {
-                        state = AppState::Menu;
-                    }
-                }
+/// Draws the whole screen.
+fn render(out: &mut Stdout, app: &InjectorApp, cursor_row: usize) {
+    let _ = execute!(out, Clear(ClearType::All), cursor::MoveTo(0, 0));
+
+    println!("=== DarkClient Injector (TUI) ===");
+    println!();
+
+    if app.processes().is_empty() {
+        println!("  No Minecraft instances found.");
+    } else {
+        println!("  Up/Down to choose, Enter to inject:");
+        println!();
+        for (row, proc) in app.processes().iter().enumerate() {
+            if row == cursor_row {
+                let _ = execute!(out, SetForegroundColor(Color::Green));
+                println!("  > PID {} — {}", proc.pid, proc.info);
+                let _ = execute!(out, ResetColor);
+            } else {
+                println!("    PID {} — {}", proc.pid, proc.info);
             }
         }
     }
 
-    execute!(stdout, LeaveAlternateScreen, cursor::Show).unwrap();
-    println!("Exited TUI.");
+    println!();
+    let (color, line) = status_line(app.status());
+    let _ = execute!(out, SetForegroundColor(color));
+    println!("  {line}");
+    let _ = execute!(out, ResetColor);
+
+    println!();
+    println!("  [s] scan   [Enter] inject   [q] quit");
+}
+
+/// Maps an [`InjectionStatus`] to a terminal colour and message.
+fn status_line(status: &InjectionStatus) -> (Color, String) {
+    let color = match status {
+        InjectionStatus::Idle => Color::Grey,
+        InjectionStatus::Scanning => Color::Cyan,
+        InjectionStatus::Injecting(_) => Color::Yellow,
+        InjectionStatus::Done(_) => Color::Green,
+        InjectionStatus::Failed(_) => Color::Red,
+    };
+    (color, status.message())
+}
+
+/// Waits up to `timeout` for a key press, returning its code if one arrived.
+fn read_key(timeout: Duration) -> Option<KeyCode> {
+    if event::poll(timeout).ok()? {
+        if let Ok(Event::Key(key)) = event::read() {
+            return Some(key.code);
+        }
+    }
+    None
 }
