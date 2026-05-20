@@ -14,6 +14,13 @@ A Minecraft hacked client built in Rust, using JNI (Java Native Interface) for s
 
 The build auto-detects which mode to use at runtime. A single binary works on both.
 
+### Supported Mod Loaders
+
+DarkClient runs on **vanilla Minecraft**, **Fabric**, and **Forge/NeoForge**. It auto-discovers the game's class loader (`KnotClassLoader` for Fabric, `TransformingClassLoader` for Forge/NeoForge), so injection is loader-agnostic.
+
+> [!NOTE]
+> Fabric and Forge/NeoForge support requires an unobfuscated build (26.1+). Obfuscated Minecraft under a mod loader (intermediary/SRG names) is not supported.
+
 ## 🖼️ Preview
 
 ![DarkClient GUI](assets/screenshot_gui.png)
@@ -25,6 +32,7 @@ The build auto-detects which mode to use at runtime. A single binary works on bo
 - **⌨️ Real-time Input Handling**: Advanced keyboard event processing for module toggling
 - **🗺️ Smart Mapping System**: Automatic obfuscation handling through JSON-based mappings
 - **🔄 Module Architecture**: Extensible module system for easy feature development
+- **🧩 Mod Loader Support**: Works with vanilla Minecraft, Fabric, and Forge/NeoForge
 - **📊 Comprehensive Logging**: Detailed logging system for debugging and monitoring
 - **🔒 Thread-Safe Design**: Robust multi-threaded architecture with proper synchronization
 
