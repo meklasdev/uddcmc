@@ -17,6 +17,7 @@ pub mod class_type;
 pub mod client;
 pub mod entity;
 pub mod java;
+mod loader;
 mod method;
 mod minecraft_version;
 mod reflect;
@@ -57,10 +58,13 @@ pub struct Mapping {
     /// In obfuscated mode every class is present up-front; in reflected mode
     /// classes are discovered and cached on first use.
     classes: RwLock<HashMap<String, Arc<MinecraftClass>>>,
-    /// The class loader that loaded Minecraft, captured the first time a class
-    /// resolves. `JNIEnv::find_class` is classloader-sensitive and only works
-    /// from threads with a Minecraft Java frame on the stack; routing every
-    /// later lookup through this loader makes resolution thread-independent.
+    /// The class loader that runs the game. On modded builds (Fabric / Forge)
+    /// it is discovered up-front by [`loader::discover_game_loader`]; on vanilla
+    /// it is captured the first time a class resolves. `JNIEnv::find_class` is
+    /// classloader-sensitive and only works from threads with a Minecraft Java
+    /// frame on the stack — and on modded builds resolves a dead duplicate of
+    /// the game classes — so routing every later lookup through this loader
+    /// makes resolution both thread-independent and mod-loader-correct.
     class_loader: RwLock<Option<GlobalRef>>,
     /// Cache of resolved JVM classes — and known-missing ones (`None`) — keyed
     /// by JNI name, so a class is searched for at most once.
@@ -121,13 +125,33 @@ fn is_unobfuscated() -> bool {
 #[allow(dead_code)]
 impl Mapping {
     pub fn new() -> anyhow::Result<Mapping> {
-        if is_unobfuscated() {
-            info!("Unobfuscated Minecraft detected — using runtime reflection mapping");
+        // Discover the loader that runs the game before anything else: on
+        // Fabric/Forge the game lives in an isolated class loader and a plain
+        // `find_class` resolves a dead duplicate of `Minecraft` whose static
+        // `instance` is null — the "Minecraft is null" failure (see `loader`).
+        let game_loader = DarkClient::instance()
+            .get_env()
+            .ok()
+            .and_then(|mut env| loader::discover_game_loader(&mut env));
+
+        // Reflected mode applies whenever the real Mojmap names exist at
+        // runtime — proven either by a resolved game loader (vanilla or modded)
+        // or, as a fallback, by a direct `find_class`.
+        if game_loader.is_some() || is_unobfuscated() {
+            match game_loader {
+                Some(_) => info!(
+                    "Modded/unobfuscated Minecraft detected — routing class \
+                     resolution through the game class loader"
+                ),
+                None => info!(
+                    "Unobfuscated Minecraft detected — using runtime reflection mapping"
+                ),
+            }
             return Ok(Mapping {
                 mode: Mode::Reflected,
                 version: MinecraftVersion::LATEST,
                 classes: RwLock::new(HashMap::new()),
-                class_loader: RwLock::new(None),
+                class_loader: RwLock::new(game_loader),
                 class_handles: RwLock::new(HashMap::new()),
             });
         }
