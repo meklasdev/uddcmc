@@ -5,6 +5,7 @@ members = [
     "injector",
     "client",
     "agent_loader",
+    "xtask",
 ]
 
 [workspace.package]

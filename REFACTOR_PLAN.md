@@ -342,9 +342,11 @@ Each phase = one commit, compiles, behavior unchanged (except Phase 5).
   classloader discovery, overload resolution, menu↔in-world transitions.
 - ✅ `cargo test -p client` (with JDK).
 
-### Phase 11 — T3: full Minecraft e2e (optional / manual)
-- `cargo xtask` that launches a real Minecraft, injects, asserts over the TCP
-  channel / logs. Marked `#[ignore]`, not run in CI.
+### Phase 11 — T3: e2e harness (optional / manual)
+- `xtask` crate + `cargo xtask e2e`: builds the workspace, discovers a
+  running Minecraft and injects into it; the overlay check is manual.
+- Headless injector modes `--list` / `--inject <pid>` make injection
+  scriptable. Not run in CI (needs a running game + root).
 - ✅ manual run.
 
 ### Phase 12 — polish
