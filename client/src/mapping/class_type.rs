@@ -15,6 +15,24 @@ pub enum MinecraftClassType {
     Iterable,
     Iterator,
     Mob,
+    Screen,
+    GameRenderer,
+    Camera,
+    LivingEntity,
+    Component,
+    LevelReader,
+    LevelChunk,
+    BlockEntity,
+    ChestBlockEntity,
+    EnderChestBlockEntity,
+    BarrelBlockEntity,
+    ShulkerBoxBlockEntity,
+    BlockPos,
+    Vec3i,
+    Map,
+    Options,
+    OptionInstance,
+    Integer,
 }
 
 impl MinecraftClassType {
@@ -34,6 +52,34 @@ impl MinecraftClassType {
             MinecraftClassType::Iterable => "java/lang/Iterable",
             MinecraftClassType::Iterator => "java/util/Iterator",
             MinecraftClassType::Mob => "net/minecraft/world/entity/Mob",
+            MinecraftClassType::Screen => "net/minecraft/client/gui/screens/Screen",
+            MinecraftClassType::GameRenderer => "net/minecraft/client/renderer/GameRenderer",
+            MinecraftClassType::Camera => "net/minecraft/client/Camera",
+            MinecraftClassType::LivingEntity => "net/minecraft/world/entity/LivingEntity",
+            MinecraftClassType::Component => "net/minecraft/network/chat/Component",
+            MinecraftClassType::LevelReader => "net/minecraft/world/level/LevelReader",
+            MinecraftClassType::LevelChunk => "net/minecraft/world/level/chunk/LevelChunk",
+            MinecraftClassType::BlockEntity => {
+                "net/minecraft/world/level/block/entity/BlockEntity"
+            }
+            MinecraftClassType::ChestBlockEntity => {
+                "net/minecraft/world/level/block/entity/ChestBlockEntity"
+            }
+            MinecraftClassType::EnderChestBlockEntity => {
+                "net/minecraft/world/level/block/entity/EnderChestBlockEntity"
+            }
+            MinecraftClassType::BarrelBlockEntity => {
+                "net/minecraft/world/level/block/entity/BarrelBlockEntity"
+            }
+            MinecraftClassType::ShulkerBoxBlockEntity => {
+                "net/minecraft/world/level/block/entity/ShulkerBoxBlockEntity"
+            }
+            MinecraftClassType::BlockPos => "net/minecraft/core/BlockPos",
+            MinecraftClassType::Vec3i => "net/minecraft/core/Vec3i",
+            MinecraftClassType::Map => "java/util/Map",
+            MinecraftClassType::Options => "net/minecraft/client/Options",
+            MinecraftClassType::OptionInstance => "net/minecraft/client/OptionInstance",
+            MinecraftClassType::Integer => "java/lang/Integer",
         }
     }
 }

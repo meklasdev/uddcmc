@@ -8,6 +8,15 @@ pub struct MinecraftVersion {
 }
 
 impl MinecraftVersion {
+    /// Sentinel "newest possible" version, used for unobfuscated builds where
+    /// no version string is parsed: it makes every `version < X` gate resolve
+    /// to the latest branch.
+    pub const LATEST: MinecraftVersion = MinecraftVersion {
+        major: u32::MAX,
+        minor: 0,
+        patch: 0,
+    };
+
     pub fn new(major: u32, minor: u32, patch: u32) -> MinecraftVersion {
         MinecraftVersion {
             major,

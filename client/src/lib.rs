@@ -2,34 +2,32 @@
 
 extern crate jni;
 mod client;
-mod gui;
-mod hook;
+mod graphic;
 mod mapping;
 mod module;
 
-use crate::client::keyboard::{start_keyboard_handler, stop_keyboard_handler};
+pub mod gl {
+    include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+}
+
 use crate::client::DarkClient;
-use crate::gui::start_gui;
+use crate::graphic::hook::{install_hooks, uninstall_hooks};
 use crate::mapping::client::minecraft::Minecraft;
 use crate::module::combat::mobaura::MobAuraModule;
 use log::{error, info, LevelFilter};
 use module::combat::aimbot::AimbotModule;
 use module::combat::killaura::KillAuraModule;
 use module::movement::fly::FlyModule;
+use module::render::chest_esp::ChestEspModule;
+use module::render::mob_esp::MobEspModule;
+use module::render::player_esp::PlayerEspModule;
 use simplelog::{Config, WriteLogger};
 use std::fs::File;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, OnceLock};
 use std::thread;
 
-static GUI_THREAD: OnceLock<Mutex<Option<thread::JoinHandle<()>>>> = OnceLock::new();
-
 // Flag to control if the client is running
-static RUNNING: AtomicBool = AtomicBool::new(false);
-
-fn gui_thread() -> &'static Mutex<Option<thread::JoinHandle<()>>> {
-    GUI_THREAD.get_or_init(|| Mutex::new(None))
-}
+pub static RUNNING: AtomicBool = AtomicBool::new(false);
 
 #[no_mangle]
 pub extern "C" fn initialize_client() {
@@ -49,27 +47,24 @@ pub extern "C" fn initialize_client() {
         Err(e) => eprintln!("Error during logger initialization: {:?}", e),
     }
 
+    // Set up a custom panic hook to guarantee we release mouse/keyboard hooks
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        error!("DarkClient Panicked! Attempting to unhook inputs...");
+        cleanup_client();
+        default_hook(panic_info);
+    }));
+
     thread::spawn(|| {
         info!("Starting DarkClient...");
         let minecraft = Minecraft::instance();
 
-        register_modules(minecraft);
-
-        start_keyboard_handler();
+        register_modules();
 
         // Install hooks
-        if let Err(e) = hook::install_hooks() {
+        if let Err(e) = install_hooks() {
             error!("Failed to install hooks: {}", e);
         }
-
-        let gui_handle = thread::spawn(move || match start_gui() {
-            Ok(_) => info!("GUI thread started"),
-            Err(e) => error!("Error while starting GUI thread: {}", e),
-        });
-
-        // Memorize the thread handle in a thread-safe way
-        let mut gui_lock = gui_thread().lock().unwrap();
-        *gui_lock = Some(gui_handle);
 
         match minecraft.get_player() {
             Ok(player) => {
@@ -90,30 +85,24 @@ pub extern "C" fn cleanup_client() {
     // Set the execution flag to false
     RUNNING.store(false, Ordering::SeqCst);
 
-    // Stop the keyboard handler
-    stop_keyboard_handler();
+    // Remove the hooks
+    uninstall_hooks();
 
-    let gui_handle = {
-        let mut gui_lock = gui_thread().lock().unwrap();
-        gui_lock.take()
-    };
-
-    if let Some(handle) = gui_handle {
-        // Give a short timeout for waiting
-        if let Err(e) = handle.join() {
-            error!("Error while waiting for gui thread: {:?}", e);
-        }
-    }
+    // Unlock GLFW Input / Restore callbacks if GUI was open
+    crate::graphic::input::cleanup();
 
     // Clean up other resources if necessary
     info!("Client cleanup completed");
 }
 
-fn register_modules(minecraft: &'static Minecraft) {
+fn register_modules() {
     let client = DarkClient::instance();
 
     client.register_module(FlyModule::new());
     client.register_module(KillAuraModule::new());
     client.register_module(MobAuraModule::new());
     client.register_module(AimbotModule::new());
+    client.register_module(PlayerEspModule::new());
+    client.register_module(MobEspModule::new());
+    client.register_module(ChestEspModule::new());
 }

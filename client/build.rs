@@ -3,6 +3,11 @@
 // It finds the `jvm.lib` import library that is required to link JNI functions.
 // On Linux, this is unnecessary because the linker can directly use libjvm.so.
 
+use gl_generator::{Api, Fallbacks, GlobalGenerator, Profile, Registry};
+use std::env;
+use std::fs::File;
+use std::path::Path;
+
 #[cfg(windows)]
 fn main() {
     use std::path::PathBuf;
@@ -70,7 +75,13 @@ fn main() {
 
 #[cfg(not(windows))]
 fn main() {
-    // On non-Windows systems this build script does nothing.
+    let dest = env::var("OUT_DIR").unwrap();
+    let mut file = File::create(&Path::new(&dest).join("bindings.rs")).unwrap();
+
+    // Ask for OpenGL 3.3 Compatibility so we get VAOs (GenVertexArrays) and modern shader API
+    Registry::new(Api::Gl, (3, 3), Profile::Compatibility, Fallbacks::All, [])
+        .write_bindings(GlobalGenerator, &mut file)
+        .unwrap();
 }
 
 #[cfg(windows)]

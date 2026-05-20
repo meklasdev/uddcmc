@@ -1,5 +1,4 @@
 use crate::mapping::client::minecraft::Minecraft;
-use crate::mapping::entity::player::LocalPlayer;
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleSetting};
 
 #[derive(Debug)]
