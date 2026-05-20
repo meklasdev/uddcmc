@@ -170,6 +170,19 @@ pub unsafe fn render_egui_ui() {
         crate::gl::BindBuffer(crate::gl::PIXEL_UNPACK_BUFFER, 0);
 
         crate::gl::ActiveTexture(crate::gl::TEXTURE0);
+
+        // Modern Minecraft (Blaze3D, 26.x+) binds GL sampler objects to its
+        // texture units. A sampler object *overrides* the texture's own
+        // parameters, so a leftover Minecraft sampler — configured for its
+        // mipmapped atlas textures — makes egui's mipmap-less font atlas
+        // texture-incomplete, and an incomplete texture samples as opaque
+        // black. That black multiplies into every egui fragment (panels and
+        // text alike). Unbind it from unit 0 — the only unit egui samples —
+        // and restore it afterwards so Minecraft's own rendering is untouched.
+        let mut last_sampler = 0;
+        crate::gl::GetIntegerv(crate::gl::SAMPLER_BINDING, &mut last_sampler);
+        crate::gl::BindSampler(0, 0);
+
         crate::gl::PixelStorei(crate::gl::UNPACK_ALIGNMENT, 1);
         crate::gl::PixelStorei(crate::gl::UNPACK_ROW_LENGTH, 0);
         crate::gl::PixelStorei(crate::gl::UNPACK_SKIP_PIXELS, 0);
@@ -196,6 +209,7 @@ pub unsafe fn render_egui_ui() {
         );
         crate::gl::BindVertexArray(last_vertex_array as u32);
         crate::gl::UseProgram(last_program as u32);
+        crate::gl::BindSampler(0, last_sampler as u32);
         crate::gl::ActiveTexture(last_active_texture as u32);
     }
 }
