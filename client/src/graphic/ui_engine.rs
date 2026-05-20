@@ -105,7 +105,7 @@ pub unsafe fn render_egui_ui() {
 
     if state_guard.is_none() {
         let gl = glow::Context::from_loader_function(|s| {
-            crate::graphic::hook::get_proc_address(s) as *const _
+            crate::graphic::platform::gl_proc_address(s) as *const _
         });
         let gl = std::sync::Arc::new(gl);
         let ctx = egui::Context::default();

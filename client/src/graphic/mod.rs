@@ -6,5 +6,6 @@ pub mod hud;
 pub mod input;
 pub mod menu;
 pub mod notification;
+pub mod platform;
 pub mod theme;
 pub mod ui_engine;

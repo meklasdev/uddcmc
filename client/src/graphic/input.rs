@@ -109,27 +109,6 @@ fn set_cursor_lock(x: f64, y: f64) {
     CURSOR_LOCK_Y.store(y.to_bits(), Ordering::Relaxed);
 }
 
-// --- Platform library lookup ----------------------------------------------
-
-/// Opens the GLFW shared library the host process loaded.
-#[cfg(target_os = "linux")]
-fn open_glfw_library() -> Option<Library> {
-    let path = crate::graphic::hook::find_library_path("libglfw.so")
-        .unwrap_or_else(|| "libglfw.so".to_string());
-    unsafe { Library::new(path).ok() }
-}
-
-/// Opens the GLFW shared library, trying the names Minecraft launchers use.
-#[cfg(target_os = "windows")]
-fn open_glfw_library() -> Option<Library> {
-    unsafe {
-        Library::new("glfw.dll")
-            .or_else(|_| Library::new("glfw3.dll"))
-            .or_else(|_| Library::new("glfw64.dll"))
-            .ok()
-    }
-}
-
 // --- Callbacks -------------------------------------------------------------
 
 extern "C" fn on_mouse_button(window: *mut c_void, button: i32, action: i32, mods: i32) {
@@ -282,7 +261,7 @@ pub fn init() {
 /// Resolves the GLFW symbols, swaps in our callbacks, and captures the state
 /// needed to restore them. Returns `None` until the window is ready.
 fn install_glfw_hooks() -> Option<GlfwHooks> {
-    let library = open_glfw_library()?;
+    let library = crate::graphic::platform::open_glfw_library()?;
 
     unsafe {
         let get_context = *library
