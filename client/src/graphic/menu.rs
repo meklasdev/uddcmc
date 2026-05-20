@@ -112,7 +112,7 @@ fn draw_toolbar(ctx: &Context, progress: f32) {
             ui.set_opacity(progress);
             egui::Frame::none()
                 .fill(theme::BASE)
-                .stroke(Stroke::new(1.0, theme::BORDER))
+                .stroke(Stroke::new(1.0_f32, theme::BORDER))
                 .rounding(Rounding::same(theme::RADIUS))
                 .inner_margin(Margin::symmetric(12.0, 7.0))
                 .shadow(ui.style().visuals.window_shadow)
@@ -178,7 +178,7 @@ fn draw_panel(
             ui.set_opacity(progress);
             egui::Frame::none()
                 .fill(theme::BASE)
-                .stroke(Stroke::new(1.0, theme::BORDER))
+                .stroke(Stroke::new(1.0_f32, theme::BORDER))
                 .rounding(Rounding::same(theme::RADIUS))
                 .shadow(ui.style().visuals.window_shadow)
                 .show(ui, |ui| {

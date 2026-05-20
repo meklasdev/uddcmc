@@ -1,114 +1,96 @@
+//! Frame hook.
+//!
+//! Intercepts the host's buffer-swap call so the overlay renders and the
+//! client ticks exactly once per frame. OpenGL entry-point resolution — the
+//! loader behind the `gl` and `glow` bindings — lives here too.
+
 use crate::client::DarkClient;
 use crate::mapping::client::minecraft::Minecraft;
-use cfg_if::cfg_if;
-use ilhook::x64::HookPoint;
+use crate::{gl, RUNNING};
+use ilhook::x64::{CallbackOption, HookFlags, HookPoint, HookType, Hooker, Registers};
 use log::info;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Mutex, OnceLock};
-
-use crate::{gl, RUNNING};
 
 static LAST_TICK: AtomicI32 = AtomicI32::new(0);
 static GL_LOADED: AtomicBool = AtomicBool::new(false);
 
-// We create a wrapper to bypass the compiler's safety checks
+/// Wrapper that lets an `ilhook` handle cross thread boundaries. Dropping the
+/// inner `HookPoint` restores the patched bytes, i.e. removes the hook.
 pub struct HookHandle(HookPoint);
 
 unsafe impl Send for HookHandle {}
 unsafe impl Sync for HookHandle {}
 
-// Global storage for the active hook.
-// We use a Mutex to be able to modify (remove) it at runtime.
-// Note: The exact type depends on what hooker.hook() returns.
-// For ilhook-rs, the `Hook` object handles unhooking when it is dropped.
-// We update the global storage to use this specific type, not dyn Any
+/// The single active buffer-swap hook. Re-injection replaces it: the old
+/// `HookHandle` drops and unhooks itself. `None` means nothing is installed.
 static GLOBAL_HOOK: OnceLock<Mutex<Option<HookHandle>>> = OnceLock::new();
 
-fn get_global_hook() -> &'static Mutex<Option<HookHandle>> {
+fn global_hook() -> &'static Mutex<Option<HookHandle>> {
     GLOBAL_HOOK.get_or_init(|| Mutex::new(None))
 }
 
-cfg_if! {
-    if #[cfg(target_os = "linux")] {
-        use std::ffi::CString;
-        use ilhook::x64::{Hooker, Registers, CallbackOption, HookFlags, HookType};
-        use libc::c_void;
+// --- OpenGL function resolution -------------------------------------------
 
-        // Helper to load OpenGL functions on Linux
-        pub fn get_proc_address(addr: &str) -> *const c_void {
-            unsafe {
-                let s = CString::new(addr).unwrap();
-                // Try first with glXGetProcAddress if available, otherwise dlsym
-                // Here we use a simplified approach assuming libGL is loaded
-                let lib = libc::dlopen(CString::new("libGL.so.1").unwrap().as_ptr(), libc::RTLD_LAZY);
-                if !lib.is_null() {
-                    libc::dlsym(lib, s.as_ptr())
-                } else {
-                    std::ptr::null()
+/// Shared library that exports the OpenGL entry points on this platform.
+const GL_LIBRARY: &str = if cfg!(target_os = "windows") {
+    "opengl32.dll"
+} else {
+    "libGL.so.1"
+};
+
+/// Lazily-opened, process-lifetime handle to the OpenGL library.
+fn gl_library() -> Option<&'static libloading::Library> {
+    static LIB: OnceLock<Option<libloading::Library>> = OnceLock::new();
+    LIB.get_or_init(|| unsafe { libloading::Library::new(GL_LIBRARY).ok() })
+        .as_ref()
+}
+
+/// Resolves an OpenGL function pointer by name — the loader fed to `gl` and
+/// `glow`. Returns null when the symbol cannot be found.
+pub fn get_proc_address(name: &str) -> *const c_void {
+    let Some(lib) = gl_library() else {
+        return std::ptr::null();
+    };
+    unsafe {
+        // On Windows, modern extension entry points are reachable only through
+        // wglGetProcAddress; opengl32.dll itself exports just the GL 1.1 core.
+        #[cfg(target_os = "windows")]
+        if let Ok(c_name) = std::ffi::CString::new(name) {
+            type WglGetProcAddress = unsafe extern "system" fn(*const i8) -> *const c_void;
+            if let Ok(wgl) = lib.get::<WglGetProcAddress>(b"wglGetProcAddress") {
+                let ptr = wgl(c_name.as_ptr());
+                if !ptr.is_null() {
+                    return ptr;
                 }
             }
         }
-
-        unsafe extern "win64" fn my_swap_buffers_hook(_regs: *mut Registers, _user_data: usize) {
-            on_frame();
-        }
-
-    } else if #[cfg(target_os = "windows")] {
-        use ilhook::x64::{Hooker, Registers, CallbackOption, HookFlags, HookType};
-        use libloading::os::windows::{Library, Symbol};
-        use std::ffi::CString;
-
-        // Helper to load OpenGL functions on Windows
-        // In a real context, we should have loaded opengl32.dll statically or lazy
-        // Here we make a "dirty" but functional attempt for injection
-        fn get_proc_address(addr: &str) -> *const std::ffi::c_void {
-            unsafe {
-                // Robust method: try wglGetProcAddress, then GetProcAddress
-                let c_str = CString::new(addr).unwrap();
-
-                let lib = libloading::Library::new("opengl32.dll");
-                if let Ok(l) = lib {
-                     // First try wglGetProcAddress (for modern extensions)
-                     let wgl_get: Result<libloading::Symbol<unsafe extern "system" fn(*const i8) -> *const std::ffi::c_void>, _> = l.get(b"wglGetProcAddress");
-                     if let Ok(wgl) = wgl_get {
-                         let ptr = wgl(c_str.as_ptr());
-                         if !ptr.is_null() {
-                             return ptr;
-                         }
-                     }
-                     // Fallback to GetProcAddress (for base GL 1.1 functions)
-                     let func: Result<libloading::Symbol<unsafe extern "system" fn()>, _> = l.get(c_str.as_bytes());
-                     if let Ok(f) = func {
-                         return *f as *const std::ffi::c_void;
-                     }
-                }
-                std::ptr::null()
-            }
-        }
-
-        unsafe extern "win64" fn my_swap_buffers_hook(_regs: *mut Registers, _user_data: usize) {
-            on_frame();
+        match lib.get::<unsafe extern "system" fn()>(name.as_bytes()) {
+            Ok(symbol) => *symbol as *const c_void,
+            Err(_) => std::ptr::null(),
         }
     }
 }
 
-const CONTEXT_PROFILE_MASK: u32 = 0x9126;
-const CONTEXT_CORE_PROFILE_BIT: u32 = 0x00000001;
+// --- Per-frame logic -------------------------------------------------------
 
-// Function called every graphical frame
+/// `ilhook` trampoline for the host's buffer-swap function.
+unsafe extern "win64" fn swap_buffers_hook(_registers: *mut Registers, _user_data: usize) {
+    on_frame();
+}
+
+/// Runs once per graphical frame, from the buffer-swap hook.
 unsafe fn on_frame() {
-    // === PANIC CHECK ===
-    // If cleanup_client() has been called, RUNNING becomes false.
-    // If it is false, we exit IMMEDIATELY. We don't tick, we don't draw.
+    // If `cleanup_client()` has run, `RUNNING` is false — bail immediately:
+    // no tick, no draw, the hooks are about to be torn down.
     if !RUNNING.load(Ordering::SeqCst) {
         return;
     }
 
-    // Initialize GL pointers...
+    // Resolve the GL function pointers once, on the live render context.
     if !GL_LOADED.load(Ordering::Relaxed) {
-        gl::load_with(|s| get_proc_address(s));
+        gl::load_with(get_proc_address);
         GL_LOADED.store(true, Ordering::Relaxed);
     }
 
@@ -116,217 +98,164 @@ unsafe fn on_frame() {
     render_overlay();
 }
 
-// use crate::graphic::render::Renderer; - Removed
-
-// === RENDERING LOGIC ===
+/// Renders the egui overlay for the current frame.
 unsafe fn render_overlay() {
     if Minecraft::instance().get_player().is_err() {
         return;
     }
 
-    // Initialize inputs when we are on the valid OpenGL thread context
+    // Install the input hooks lazily — they need the live GLFW window.
     crate::graphic::input::init();
 
-    // Initialize the renderer, which backs up OpenGL state
-    //let mut renderer = Renderer::new();
-
-    // Call our new custom OpenGL UI system
-    //crate::graphic::ui::render_gui(&mut renderer);
-
     crate::graphic::ui_engine::render_egui_ui();
-
-    // the state is restored automatically when `renderer` goes out of scope and drops
 }
 
+/// Detects a new game tick by watching the player's tick counter, and ticks
+/// every enabled module when one is observed.
 fn check_tick() {
     let client = DarkClient::instance();
-    // Try to get env without attaching if possible, or attach as daemon.
-    let _env = match client.jvm.attach_current_thread_as_daemon() {
-        Ok(env) => env,
-        Err(_) => return,
-    };
+    // Attach as a daemon so this render thread can make JNI calls.
+    if client.jvm.attach_current_thread_as_daemon().is_err() {
+        return;
+    }
 
     let minecraft = Minecraft::instance();
 
-    let player = match minecraft.get_player() {
-        Ok(p) => p,
+    let tick_count = match minecraft.get_player() {
+        Ok(player) => match player.entity.get_tick_count() {
+            Ok(count) => count,
+            Err(_) => return,
+        },
         Err(_) => return,
     };
 
-    let tick_count = match player.entity.get_tick_count() {
-        Ok(t) => t,
-        Err(_) => return,
-    };
-
-    let last_tick = LAST_TICK.load(Ordering::Relaxed);
-
-    if tick_count > last_tick {
+    if tick_count > LAST_TICK.load(Ordering::Relaxed) {
         LAST_TICK.store(tick_count, Ordering::Relaxed);
         client.tick();
     }
 }
 
+// --- Hook installation -----------------------------------------------------
+
+/// Finds the on-disk path of a loaded shared object by scanning the process's
+/// memory map. Linux-only — used to hook the exact GLFW the host loaded.
+#[cfg(target_os = "linux")]
 pub fn find_library_path(partial_name: &str) -> Option<String> {
-    if let Ok(file) = File::open("/proc/self/maps") {
-        let reader = BufReader::new(file);
-        for line in reader.lines() {
-            if let Ok(l) = line {
-                // Look for a line containing the name (e.g. "liblwjgl_opengl.so")
-                if l.contains(partial_name) && l.contains(".so") {
-                    // The format is: address perms offset dev inode PATH
-                    // We take the last part of the string
-                    if let Some(path) = l.split_whitespace().last() {
-                        return Some(path.to_string());
-                    }
-                }
+    use std::io::{BufRead, BufReader};
+
+    let file = std::fs::File::open("/proc/self/maps").ok()?;
+    for line in BufReader::new(file).lines().map_while(Result::ok) {
+        // Format: address perms offset dev inode PATH
+        if line.contains(partial_name) && line.contains(".so") {
+            if let Some(path) = line.split_whitespace().last() {
+                return Some(path.to_string());
             }
         }
     }
     None
 }
 
+/// Installs the buffer-swap hook that drives the overlay. Idempotent across
+/// re-injection: the previous hook is dropped (and thus removed) first.
+fn store_hook(hook: HookPoint, label: &str) {
+    let mut guard = global_hook().lock().unwrap();
+    if guard.is_some() {
+        info!("Replacing the existing buffer-swap hook.");
+    }
+    *guard = Some(HookHandle(hook));
+    info!(">>> HOOK ACTIVE ON: {} <<<", label);
+}
+
+/// Builds an `ilhook` `Hooker` for `target_addr` routed to [`swap_buffers_hook`].
+fn hooker_for(target_addr: usize) -> Hooker {
+    Hooker::new(
+        target_addr,
+        HookType::JmpBack(swap_buffers_hook),
+        CallbackOption::None,
+        0,
+        HookFlags::empty(),
+    )
+}
+
+#[cfg(target_os = "linux")]
 pub fn install_hooks() -> anyhow::Result<()> {
-    #[cfg(target_os = "linux")]
-    unsafe {
-        let mut targets = Vec::new();
+    use std::ffi::CString;
 
-        if let Some(path) = find_library_path("libglfw.so") {
-            info!("Found GLFW library: {}", path);
-            targets.push((path, "glfwSwapBuffers"));
-        } else if let Some(path) = find_library_path("liblwjgl.so") {
-            info!("Found LWJGL library (Legacy): {}", path);
-            targets.push((path, "glXSwapBuffers"));
-        } else {
-            info!("No specific library found, trying system libGL...");
-            targets.push(("libGL.so.1".to_string(), "glXSwapBuffers"));
-        }
+    // Candidate (library, exported swap function) pairs, most specific first.
+    let mut targets: Vec<(String, &str)> = Vec::new();
+    if let Some(path) = find_library_path("libglfw.so") {
+        info!("Found GLFW library: {}", path);
+        targets.push((path, "glfwSwapBuffers"));
+    } else if let Some(path) = find_library_path("liblwjgl.so") {
+        info!("Found LWJGL library (legacy): {}", path);
+        targets.push((path, "glXSwapBuffers"));
+    } else {
+        info!("No specific library found, falling back to system libGL.");
+        targets.push(("libGL.so.1".to_string(), "glXSwapBuffers"));
+    }
 
-        let mut hooked_count = 0;
+    for (lib_path, func_name) in targets {
+        let c_lib_path = CString::new(lib_path.clone())?;
+        let c_func_name = CString::new(func_name)?;
 
-        for (lib_path, func_name) in targets {
-            let c_lib_path = CString::new(lib_path.clone())?;
-            let c_func_name = CString::new(func_name)?;
-
+        unsafe {
             let lib = libc::dlopen(c_lib_path.as_ptr(), libc::RTLD_LAZY);
-
-            if !lib.is_null() {
-                let target_addr = libc::dlsym(lib, c_func_name.as_ptr()) as usize;
-
-                if target_addr != 0 {
-                    info!("Found {} in {} at 0x{:x}", func_name, lib_path, target_addr);
-
-                    let hooker = Hooker::new(
-                        target_addr,
-                        HookType::JmpBack(my_swap_buffers_hook),
-                        CallbackOption::None,
-                        0,
-                        HookFlags::empty(),
-                    );
-
-                    match hooker.hook() {
-                        Ok(hook) => {
-                            // Get the global lock
-                            let mut guard = get_global_hook().lock().unwrap();
-
-                            // If there was an old hook, we overwrite it (triggering automatic unhook)
-                            if guard.is_some() {
-                                info!("Detected old hook, removing and replacing...");
-                            }
-
-                            // Wrap the hook in our "Thread Safe" wrapper
-                            *guard = Some(HookHandle(hook));
-
-                            hooked_count += 1;
-                            info!(">>> HOOK ACTIVE AND SAVED ON: {} <<<", lib_path);
-
-                            // Exit the loop, one active hook is enough
-                            break;
-                        }
-                        Err(e) => {
-                            info!("Error installing hook on {}: {:?}", lib_path, e);
-                        }
-                    }
-                }
+            if lib.is_null() {
+                continue;
             }
-        }
+            let target_addr = libc::dlsym(lib, c_func_name.as_ptr()) as usize;
+            if target_addr == 0 {
+                continue;
+            }
+            info!("Found {} in {} at 0x{:x}", func_name, lib_path, target_addr);
 
-        if hooked_count == 0 {
-            // We could return an error here, BUT if we are re-injecting and something went wrong
-            // with the static flag, we might want to "pretend" everything is fine.
-            // However, for now we leave the error if count is 0.
-            return Err(anyhow::anyhow!("Failed to hook any candidate libraries!"));
+            match hooker_for(target_addr).hook() {
+                Ok(hook) => {
+                    store_hook(hook, &lib_path);
+                    return Ok(());
+                }
+                Err(e) => info!("Error installing hook on {}: {:?}", lib_path, e),
+            }
         }
     }
 
-    #[cfg(target_os = "windows")]
+    Err(anyhow::anyhow!("Failed to hook any candidate libraries!"))
+}
+
+#[cfg(target_os = "windows")]
+pub fn install_hooks() -> anyhow::Result<()> {
+    use libloading::Library;
+
+    const LIB_NAME: &str = "opengl32.dll";
+    const FUNC_NAME: &[u8] = b"wglSwapBuffers";
+
     unsafe {
-        use libloading::Library;
-        let lib_name = "opengl32.dll";
-        let func_name = "wglSwapBuffers";
+        let lib = Library::new(LIB_NAME)
+            .map_err(|e| anyhow::anyhow!("Failed to load {}: {}", LIB_NAME, e))?;
 
-        let lib = match Library::new(lib_name) {
-            Ok(l) => l,
-            Err(e) => {
-                info!("Error loading opengl32: {}", e);
-                return Err(anyhow::anyhow!("Failed to hook opengl32"));
-            }
-        };
+        let swap_buffers: libloading::Symbol<unsafe extern "system" fn()> = lib
+            .get(FUNC_NAME)
+            .map_err(|e| anyhow::anyhow!("wglSwapBuffers missing: {}", e))?;
 
-        let target_addr: libloading::Symbol<unsafe extern "system" fn()> =
-            match lib.get(func_name.as_bytes()) {
-                Ok(s) => s,
-                Err(e) => {
-                    info!("wglSwapBuffers missing: {}", e);
-                    return Err(anyhow::anyhow!("Failed to hook wglSwapBuffers"));
-                }
-            };
+        let target_addr = *swap_buffers as *const () as usize;
+        info!("Found wglSwapBuffers in {} at 0x{:x}", LIB_NAME, target_addr);
 
-        let target_addr_val = *target_addr as *const () as usize;
-        info!(
-            "Found {} in {} at 0x{:x}",
-            func_name, lib_name, target_addr_val
-        );
+        let hook = hooker_for(target_addr)
+            .hook()
+            .map_err(|e| anyhow::anyhow!("Failed to hook wglSwapBuffers: {:?}", e))?;
+        store_hook(hook, LIB_NAME);
 
-        let hooker = Hooker::new(
-            target_addr_val,
-            HookType::JmpBack(my_swap_buffers_hook),
-            CallbackOption::None,
-            0,
-            HookFlags::empty(),
-        );
-
-        match hooker.hook() {
-            Ok(hook) => {
-                let mut guard = get_global_hook().lock().unwrap();
-                if guard.is_some() {
-                    info!("Detected old hook, removing...");
-                }
-                *guard = Some(HookHandle(hook));
-                info!(">>> HOOK ACTIVE AND SAVED ON: {} <<<", lib_name);
-            }
-            Err(e) => {
-                info!("Hook error on {}: {:?}", lib_name, e);
-                return Err(anyhow::anyhow!("Failed to hook wglSwapBuffers!"));
-            }
-        }
-
-        // Keep the library handle alive
+        // Keep the library handle alive for the process lifetime.
         std::mem::forget(lib);
     }
     Ok(())
 }
 
+/// Removes the active buffer-swap hook, restoring the original bytes.
 pub fn uninstall_hooks() {
-    // Take the lock
-    let mut guard = get_global_hook().lock().unwrap();
-
-    if guard.is_some() {
-        info!("Physical hook removal in progress...");
-        // By setting to None, the Wrapper is destroyed.
-        // The Wrapper destroys the internal HookPoint.
-        // The internal HookPoint restores the original memory bytes.
-        *guard = None;
-        info!("Hook removed successfully. Memory cleaned.");
+    let mut guard = global_hook().lock().unwrap();
+    if guard.take().is_some() {
+        info!("Buffer-swap hook removed; memory restored.");
     } else {
         info!("No active hook to remove.");
     }

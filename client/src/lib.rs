@@ -1,4 +1,6 @@
-#![cfg_attr(debug_assertions, allow(dead_code))]
+// The framework exposes deliberate toolkit API (animation, theming,
+// notification, mapping helpers) that is not all wired up to a caller yet.
+#![allow(dead_code)]
 
 extern crate jni;
 mod client;

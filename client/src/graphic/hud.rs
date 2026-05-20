@@ -38,7 +38,7 @@ fn draw_watermark(ctx: &Context, painter: &Painter) {
     let rect = Rect::from_min_size(egui::pos2(MARGIN, MARGIN), size);
 
     painter.rect_filled(rect, Rounding::same(theme::RADIUS), Color32::from_black_alpha(165));
-    painter.rect_stroke(rect, Rounding::same(theme::RADIUS), Stroke::new(1.0, theme::BORDER));
+    painter.rect_stroke(rect, Rounding::same(theme::RADIUS), Stroke::new(1.0_f32, theme::BORDER));
 
     // Accent edge on the left side of the chip.
     let edge = Rect::from_min_size(rect.min, Vec2::new(3.0, rect.height()));

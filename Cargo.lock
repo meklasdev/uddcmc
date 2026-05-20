@@ -660,7 +660,6 @@ name = "client"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "cfg-if",
  "egui",
  "egui_glow",
  "gl_generator",

@@ -1,16 +1,29 @@
-use libc::c_void;
-use log::{error, info};
-use std::ffi::CString;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+//! Input interception.
+//!
+//! Swaps the host's GLFW mouse/cursor/key callbacks for our own so the overlay
+//! can read input and, while the GUI is open, swallow events before they reach
+//! Minecraft. The logic is platform-agnostic; only locating the GLFW shared
+//! library differs between Linux and Windows (see [`open_glfw_library`]).
 
-// Global Input State
+use crate::client::DarkClient;
+use crate::mapping::client::minecraft::Minecraft;
+use libloading::Library;
+use log::info;
+use std::ffi::c_void;
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
+
+// --- Public input state ----------------------------------------------------
+
+/// Whether the overlay GUI is open. While open, input is consumed instead of
+/// being forwarded to Minecraft.
 pub static GUI_OPEN: AtomicBool = AtomicBool::new(false);
-pub static LAST_KEY_PRESSED: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
 
-lazy_static::lazy_static! {
-    pub static ref MOUSE_STATE: Mutex<MouseState> = Mutex::new(MouseState::default());
-}
+/// Last key pressed, or `-1` once consumed. Used by the keybind picker.
+pub static LAST_KEY_PRESSED: AtomicI32 = AtomicI32::new(-1);
+
+/// Snapshot of the mouse, updated from the GLFW callbacks and read by the UI.
+pub static MOUSE_STATE: Mutex<MouseState> = Mutex::new(MouseState::NEW);
 
 #[derive(Default, Clone, Copy)]
 pub struct MouseState {
@@ -22,566 +35,324 @@ pub struct MouseState {
     pub right_clicked: bool,
 }
 
+impl MouseState {
+    const NEW: MouseState = MouseState {
+        x: 0.0,
+        y: 0.0,
+        left_down: false,
+        right_down: false,
+        left_clicked: false,
+        right_clicked: false,
+    };
+}
+
+// --- GLFW constants --------------------------------------------------------
+
+const GLFW_RELEASE: i32 = 0;
+const GLFW_PRESS: i32 = 1;
+const GLFW_MOUSE_BUTTON_LEFT: i32 = 0;
+const GLFW_MOUSE_BUTTON_RIGHT: i32 = 1;
+const GLFW_KEY_RIGHT_SHIFT: i32 = 344;
+
+const GLFW_CURSOR: i32 = 0x0003_3001;
+const GLFW_CURSOR_NORMAL: i32 = 0x0003_4001;
+const GLFW_CURSOR_DISABLED: i32 = 0x0003_4003;
+
+// --- GLFW function-pointer types -------------------------------------------
+
+type MouseButtonFun = extern "C" fn(*mut c_void, i32, i32, i32);
+type CursorPosFun = extern "C" fn(*mut c_void, f64, f64);
+type KeyFun = extern "C" fn(*mut c_void, i32, i32, i32, i32);
+
+type GetCurrentContext = extern "C" fn() -> *mut c_void;
+type SetMouseButtonCallback = extern "C" fn(*mut c_void, MouseButtonFun) -> *mut c_void;
+type SetCursorPosCallback = extern "C" fn(*mut c_void, CursorPosFun) -> *mut c_void;
+type SetKeyCallback = extern "C" fn(*mut c_void, KeyFun) -> *mut c_void;
+type SetInputMode = extern "C" fn(*mut c_void, i32, i32);
+type SetCursorPos = extern "C" fn(*mut c_void, f64, f64);
+
+// --- Installed-hook state --------------------------------------------------
+
+/// Everything captured when the GLFW callbacks were swapped: the library (kept
+/// alive so the resolved symbols stay valid), the window, the host's original
+/// callbacks, and the two functions needed to toggle cursor capture.
+struct GlfwHooks {
+    library: Library,
+    window: *mut c_void,
+    original_mouse_button: *mut c_void,
+    original_cursor_pos: *mut c_void,
+    original_key: *mut c_void,
+    set_input_mode: SetInputMode,
+    set_cursor_pos: SetCursorPos,
+}
+
+// The raw pointers are only ever touched on the render/GLFW thread; the struct
+// is published through `OnceLock` purely for read-only access.
+unsafe impl Send for GlfwHooks {}
+unsafe impl Sync for GlfwHooks {}
+
+static HOOKS: OnceLock<GlfwHooks> = OnceLock::new();
+
+/// Last real cursor position, stored as `f64` bits. While the GUI is open the
+/// cursor reported to Minecraft is frozen here, so the camera does not spin.
+static CURSOR_LOCK_X: AtomicU64 = AtomicU64::new(0);
+static CURSOR_LOCK_Y: AtomicU64 = AtomicU64::new(0);
+
+fn cursor_lock() -> (f64, f64) {
+    (
+        f64::from_bits(CURSOR_LOCK_X.load(Ordering::Relaxed)),
+        f64::from_bits(CURSOR_LOCK_Y.load(Ordering::Relaxed)),
+    )
+}
+
+fn set_cursor_lock(x: f64, y: f64) {
+    CURSOR_LOCK_X.store(x.to_bits(), Ordering::Relaxed);
+    CURSOR_LOCK_Y.store(y.to_bits(), Ordering::Relaxed);
+}
+
+// --- Platform library lookup ----------------------------------------------
+
+/// Opens the GLFW shared library the host process loaded.
 #[cfg(target_os = "linux")]
-mod linux_input {
-    use super::*;
-    use std::sync::Once;
-
-    // Original callbacks and GLFW state
-    static mut ORIGINAL_MOUSE_BTN: *mut c_void = std::ptr::null_mut();
-    static mut ORIGINAL_CURSOR_POS: *mut c_void = std::ptr::null_mut();
-    static mut ORIGINAL_KEY_CB: *mut c_void = std::ptr::null_mut();
-
-    static mut GLFW_WINDOW: *mut c_void = std::ptr::null_mut();
-    static mut GLFW_SET_INPUT_MODE: Option<extern "C" fn(*mut c_void, i32, i32)> = None;
-    static mut GLFW_SET_CURSOR_POS: Option<extern "C" fn(*mut c_void, f64, f64)> = None;
-
-    // To prevent massive camera spins when un-grabbing
-    static mut C_LOCK_X: f64 = 0.0;
-    static mut C_LOCK_Y: f64 = 0.0;
-
-    // Type definitions for GLFW callbacks
-    type GlfwMouseButtonFun = extern "C" fn(*mut c_void, i32, i32, i32);
-    type GlfwCursorPosFun = extern "C" fn(*mut c_void, f64, f64);
-    type GlfwKeyFun = extern "C" fn(*mut c_void, i32, i32, i32, i32);
-
-    extern "C" fn my_mouse_button_callback(
-        window: *mut c_void,
-        button: i32,
-        action: i32,
-        mods: i32,
-    ) {
-        if action == 1 {
-            // GLFW_PRESS
-            if button == 0 {
-                // GLFW_MOUSE_BUTTON_LEFT
-                if let Ok(mut state) = MOUSE_STATE.lock() {
-                    state.left_down = true;
-                    state.left_clicked = true;
-                }
-            } else if button == 1 {
-                // GLFW_MOUSE_BUTTON_RIGHT
-                if let Ok(mut state) = MOUSE_STATE.lock() {
-                    state.right_down = true;
-                    state.right_clicked = true;
-                }
-            }
-        } else if action == 0 {
-            // GLFW_RELEASE
-            if button == 0 {
-                if let Ok(mut state) = MOUSE_STATE.lock() {
-                    state.left_down = false;
-                }
-            } else if button == 1 {
-                if let Ok(mut state) = MOUSE_STATE.lock() {
-                    state.right_down = false;
-                }
-            }
-        }
-
-        // If GUI is open, consume the event (don't pass to Minecraft)
-        if GUI_OPEN.load(Ordering::Relaxed) {
-            return;
-        }
-
-        // Pass to original
-        unsafe {
-            if !ORIGINAL_MOUSE_BTN.is_null() {
-                let orig: GlfwMouseButtonFun = std::mem::transmute(ORIGINAL_MOUSE_BTN);
-                orig(window, button, action, mods);
-            }
-        }
-    }
-
-    extern "C" fn my_cursor_pos_callback(window: *mut c_void, xpos: f64, ypos: f64) {
-        if let Ok(mut state) = MOUSE_STATE.lock() {
-            state.x = xpos;
-            state.y = ypos;
-        }
-
-        // If GUI is open, we freeze the position sent to Minecraft to the last known position
-        let mut send_x = xpos;
-        let mut send_y = ypos;
-
-        if GUI_OPEN.load(Ordering::Relaxed) {
-            unsafe {
-                send_x = C_LOCK_X;
-                send_y = C_LOCK_Y;
-            }
-        } else {
-            unsafe {
-                C_LOCK_X = xpos;
-                C_LOCK_Y = ypos;
-            }
-        }
-
-        unsafe {
-            if !ORIGINAL_CURSOR_POS.is_null() {
-                let orig: GlfwCursorPosFun = std::mem::transmute(ORIGINAL_CURSOR_POS);
-                orig(window, send_x, send_y);
-            }
-        }
-    }
-
-    extern "C" fn my_key_callback(
-        window: *mut c_void,
-        key: i32,
-        scancode: i32,
-        action: i32,
-        mods: i32,
-    ) {
-        if action == 1 {
-            LAST_KEY_PRESSED.store(key, Ordering::Relaxed);
-        }
-
-        if key == 344 /* Right Shift */ && action == 1 {
-            // Toggle GUI
-            let current = GUI_OPEN.load(Ordering::Relaxed);
-            let next = !current;
-            GUI_OPEN.store(next, Ordering::Relaxed);
-
-            // Toggle mouse visibility
-            unsafe {
-                if let Some(set_mode) = GLFW_SET_INPUT_MODE {
-                    if !GLFW_WINDOW.is_null() {
-                        if next {
-                            // GUI Open -> Normal Pointer
-                            set_mode(GLFW_WINDOW, 0x00033001, 0x00034001);
-                        } else {
-                            // GUI Closed -> Disabled / Captured Pointer
-                            if let Some(set_cursor_pos) = GLFW_SET_CURSOR_POS {
-                                set_cursor_pos(GLFW_WINDOW, C_LOCK_X, C_LOCK_Y);
-                            }
-                            set_mode(GLFW_WINDOW, 0x00033001, 0x00034003);
-                        }
-                    }
-                }
-            }
-        }
-
-        if GUI_OPEN.load(Ordering::Relaxed) {
-            return;
-        }
-
-        // --- Module Toggling ---
-        // Only trigger on action == 1 (GLFW_PRESS) to prevent duplicates or release triggers
-        if action == 1 {
-            let minecraft = crate::mapping::client::minecraft::Minecraft::instance();
-            if minecraft.current_screen_is_null() && minecraft.get_player().is_ok() {
-                let client = crate::client::DarkClient::instance();
-                if let Ok(modules) = client.modules.read() {
-                    for module in modules.values() {
-                        let mut module = module.lock().unwrap();
-                        let module_data = module.get_module_data();
-
-                        if module_data.key_bind as i32 == key {
-                            let enabled = !module_data.enabled;
-                            log::info!(
-                                "{} {}",
-                                module_data.name,
-                                if enabled { "enabled" } else { "disabled" }
-                            );
-                            if enabled {
-                                let _ = module.on_start();
-                            } else {
-                                let _ = module.on_stop();
-                            }
-                            module.get_module_data_mut().set_enabled(enabled);
-                        }
-                    }
-                }
-            }
-        }
-
-        unsafe {
-            if !ORIGINAL_KEY_CB.is_null() {
-                let orig: GlfwKeyFun = std::mem::transmute(ORIGINAL_KEY_CB);
-                orig(window, key, scancode, action, mods);
-            }
-        }
-    }
-
-    pub fn init_glfw_hooks() {
-        static HOOKED_ONCE: Once = Once::new();
-        HOOKED_ONCE.call_once(|| {
-            unsafe {
-                let path = crate::graphic::hook::find_library_path("libglfw.so")
-                    .unwrap_or_else(|| "libglfw.so".to_string());
-                let libglfw = libc::dlopen(CString::new(path).unwrap().as_ptr(), libc::RTLD_LAZY);
-                if libglfw.is_null() {
-                    error!("Could not open libglfw.so to hook inputs.");
-                    return;
-                }
-
-                // Get function pointers
-                let get_current_context: extern "C" fn() -> *mut c_void =
-                    std::mem::transmute(libc::dlsym(
-                        libglfw,
-                        CString::new("glfwGetCurrentContext").unwrap().as_ptr(),
-                    ));
-                let set_mouse_button: extern "C" fn(
-                    *mut c_void,
-                    GlfwMouseButtonFun,
-                ) -> *mut c_void = std::mem::transmute(libc::dlsym(
-                    libglfw,
-                    CString::new("glfwSetMouseButtonCallback").unwrap().as_ptr(),
-                ));
-                let set_cursor_pos: extern "C" fn(*mut c_void, GlfwCursorPosFun) -> *mut c_void =
-                    std::mem::transmute(libc::dlsym(
-                        libglfw,
-                        CString::new("glfwSetCursorPosCallback").unwrap().as_ptr(),
-                    ));
-                let set_key_cb: extern "C" fn(*mut c_void, GlfwKeyFun) -> *mut c_void =
-                    std::mem::transmute(libc::dlsym(
-                        libglfw,
-                        CString::new("glfwSetKeyCallback").unwrap().as_ptr(),
-                    ));
-                let set_input_mode: extern "C" fn(*mut c_void, i32, i32) = std::mem::transmute(
-                    libc::dlsym(libglfw, CString::new("glfwSetInputMode").unwrap().as_ptr()),
-                );
-                let set_cursor_pos_func: extern "C" fn(*mut c_void, f64, f64) = std::mem::transmute(
-                    libc::dlsym(libglfw, CString::new("glfwSetCursorPos").unwrap().as_ptr()),
-                );
-
-                let window = get_current_context();
-                if window.is_null() {
-                    error!("No glfw window context found yet.");
-                    return;
-                }
-
-                info!("Successfully got GLFW window. Placing callback overrides...");
-
-                // Swap callbacks and store original
-                ORIGINAL_MOUSE_BTN = set_mouse_button(window, my_mouse_button_callback);
-                ORIGINAL_CURSOR_POS = set_cursor_pos(window, my_cursor_pos_callback);
-                ORIGINAL_KEY_CB = set_key_cb(window, my_key_callback);
-
-                // Store globally so we can toggle grab state later
-                GLFW_WINDOW = window;
-                GLFW_SET_INPUT_MODE = Some(set_input_mode);
-                GLFW_SET_CURSOR_POS = Some(set_cursor_pos_func);
-
-                // Assuming GUI is open by default: ungrab mouse right away
-                if GUI_OPEN.load(Ordering::Relaxed) {
-                    set_input_mode(window, 0x00033001, 0x00034001);
-                }
-            }
-        });
-    }
-
-    pub fn cleanup_glfw_hooks() {
-        unsafe {
-            if !GLFW_WINDOW.is_null() && !ORIGINAL_CURSOR_POS.is_null() {
-                // We need to re-find the functions since we don't store them,
-                // but we can just use dlsym again.
-                if let Some(path) = crate::graphic::hook::find_library_path("libglfw.so") {
-                    let libglfw =
-                        libc::dlopen(CString::new(path).unwrap().as_ptr(), libc::RTLD_LAZY);
-                    if !libglfw.is_null() {
-                        let set_mouse_button: extern "C" fn(*mut c_void, *mut c_void) =
-                            std::mem::transmute(libc::dlsym(
-                                libglfw,
-                                CString::new("glfwSetMouseButtonCallback").unwrap().as_ptr(),
-                            ));
-                        let set_cursor_pos: extern "C" fn(*mut c_void, *mut c_void) =
-                            std::mem::transmute(libc::dlsym(
-                                libglfw,
-                                CString::new("glfwSetCursorPosCallback").unwrap().as_ptr(),
-                            ));
-                        let set_key_cb: extern "C" fn(*mut c_void, *mut c_void) =
-                            std::mem::transmute(libc::dlsym(
-                                libglfw,
-                                CString::new("glfwSetKeyCallback").unwrap().as_ptr(),
-                            ));
-
-                        // Restore original callbacks
-                        set_mouse_button(GLFW_WINDOW, ORIGINAL_MOUSE_BTN);
-                        set_cursor_pos(GLFW_WINDOW, ORIGINAL_CURSOR_POS);
-                        set_key_cb(GLFW_WINDOW, ORIGINAL_KEY_CB);
-
-                        // Ensure mouse is ungrabbed (normal) if we panic'd while GUI was open
-                        if let Some(set_mode) = GLFW_SET_INPUT_MODE {
-                            set_mode(GLFW_WINDOW, 0x00033001, 0x00034003); // 0x00034003 is GLFW_CURSOR_DISABLED (Minecraft default)
-                        }
-                    }
-                }
-            }
-        }
-    }
+fn open_glfw_library() -> Option<Library> {
+    let path = crate::graphic::hook::find_library_path("libglfw.so")
+        .unwrap_or_else(|| "libglfw.so".to_string());
+    unsafe { Library::new(path).ok() }
 }
 
+/// Opens the GLFW shared library, trying the names Minecraft launchers use.
 #[cfg(target_os = "windows")]
-mod windows_input {
-    use super::*;
-    use libloading::Library;
-    use std::ffi::c_void;
-    use std::sync::Once;
+fn open_glfw_library() -> Option<Library> {
+    unsafe {
+        Library::new("glfw.dll")
+            .or_else(|_| Library::new("glfw3.dll"))
+            .or_else(|_| Library::new("glfw64.dll"))
+            .ok()
+    }
+}
 
-    static mut ORIGINAL_MOUSE_BTN: *mut c_void = std::ptr::null_mut();
-    static mut ORIGINAL_CURSOR_POS: *mut c_void = std::ptr::null_mut();
-    static mut ORIGINAL_KEY_CB: *mut c_void = std::ptr::null_mut();
+// --- Callbacks -------------------------------------------------------------
 
-    static mut GLFW_WINDOW: *mut c_void = std::ptr::null_mut();
-    static mut GLFW_SET_INPUT_MODE: Option<extern "C" fn(*mut c_void, i32, i32)> = None;
-    static mut GLFW_SET_CURSOR_POS: Option<extern "C" fn(*mut c_void, f64, f64)> = None;
-
-    static mut C_LOCK_X: f64 = 0.0;
-    static mut C_LOCK_Y: f64 = 0.0;
-
-    type GlfwMouseButtonFun = extern "C" fn(*mut c_void, i32, i32, i32);
-    type GlfwCursorPosFun = extern "C" fn(*mut c_void, f64, f64);
-    type GlfwKeyFun = extern "C" fn(*mut c_void, i32, i32, i32, i32);
-
-    extern "C" fn my_mouse_button_callback(
-        window: *mut c_void,
-        button: i32,
-        action: i32,
-        mods: i32,
-    ) {
-        if action == 1 {
-            if button == 0 {
-                if let Ok(mut state) = MOUSE_STATE.lock() {
-                    state.left_down = true;
-                    state.left_clicked = true;
-                }
-            } else if button == 1 {
-                if let Ok(mut state) = MOUSE_STATE.lock() {
-                    state.right_down = true;
-                    state.right_clicked = true;
-                }
+extern "C" fn on_mouse_button(window: *mut c_void, button: i32, action: i32, mods: i32) {
+    if let Ok(mut state) = MOUSE_STATE.lock() {
+        match (button, action) {
+            (GLFW_MOUSE_BUTTON_LEFT, GLFW_PRESS) => {
+                state.left_down = true;
+                state.left_clicked = true;
             }
-        } else if action == 0 {
-            if button == 0 {
-                if let Ok(mut state) = MOUSE_STATE.lock() {
-                    state.left_down = false;
-                }
-            } else if button == 1 {
-                if let Ok(mut state) = MOUSE_STATE.lock() {
-                    state.right_down = false;
-                }
+            (GLFW_MOUSE_BUTTON_LEFT, GLFW_RELEASE) => state.left_down = false,
+            (GLFW_MOUSE_BUTTON_RIGHT, GLFW_PRESS) => {
+                state.right_down = true;
+                state.right_clicked = true;
             }
-        }
-        if GUI_OPEN.load(Ordering::Relaxed) {
-            return;
-        }
-        unsafe {
-            if !ORIGINAL_MOUSE_BTN.is_null() {
-                let orig: GlfwMouseButtonFun = std::mem::transmute(ORIGINAL_MOUSE_BTN);
-                orig(window, button, action, mods);
-            }
+            (GLFW_MOUSE_BUTTON_RIGHT, GLFW_RELEASE) => state.right_down = false,
+            _ => {}
         }
     }
 
-    extern "C" fn my_cursor_pos_callback(window: *mut c_void, xpos: f64, ypos: f64) {
-        if let Ok(mut state) = MOUSE_STATE.lock() {
-            state.x = xpos;
-            state.y = ypos;
+    // While the GUI is open, swallow the event instead of forwarding it.
+    if GUI_OPEN.load(Ordering::Relaxed) {
+        return;
+    }
+    if let Some(hooks) = HOOKS.get() {
+        if !hooks.original_mouse_button.is_null() {
+            let original: MouseButtonFun =
+                unsafe { std::mem::transmute(hooks.original_mouse_button) };
+            original(window, button, action, mods);
         }
-        let mut send_x = xpos;
-        let mut send_y = ypos;
+    }
+}
 
-        if GUI_OPEN.load(Ordering::Relaxed) {
-            unsafe {
-                send_x = C_LOCK_X;
-                send_y = C_LOCK_Y;
-            }
+extern "C" fn on_cursor_pos(window: *mut c_void, x: f64, y: f64) {
+    if let Ok(mut state) = MOUSE_STATE.lock() {
+        state.x = x;
+        state.y = y;
+    }
+
+    // While the GUI is open, feed Minecraft the frozen position so dragging the
+    // overlay does not move the camera; otherwise track the real cursor.
+    let (send_x, send_y) = if GUI_OPEN.load(Ordering::Relaxed) {
+        cursor_lock()
+    } else {
+        set_cursor_lock(x, y);
+        (x, y)
+    };
+
+    if let Some(hooks) = HOOKS.get() {
+        if !hooks.original_cursor_pos.is_null() {
+            let original: CursorPosFun = unsafe { std::mem::transmute(hooks.original_cursor_pos) };
+            original(window, send_x, send_y);
+        }
+    }
+}
+
+extern "C" fn on_key(window: *mut c_void, key: i32, scancode: i32, action: i32, mods: i32) {
+    if action == GLFW_PRESS {
+        LAST_KEY_PRESSED.store(key, Ordering::Relaxed);
+    }
+
+    if key == GLFW_KEY_RIGHT_SHIFT && action == GLFW_PRESS {
+        toggle_gui();
+    }
+
+    // While the GUI is open, swallow the event instead of forwarding it.
+    if GUI_OPEN.load(Ordering::Relaxed) {
+        return;
+    }
+
+    if action == GLFW_PRESS {
+        handle_module_keybind(key);
+    }
+
+    if let Some(hooks) = HOOKS.get() {
+        if !hooks.original_key.is_null() {
+            let original: KeyFun = unsafe { std::mem::transmute(hooks.original_key) };
+            original(window, key, scancode, action, mods);
+        }
+    }
+}
+
+/// Toggles the overlay GUI and the matching cursor-capture mode.
+fn toggle_gui() {
+    // `fetch_xor` returns the previous value; the new state is its negation.
+    let open = !GUI_OPEN.fetch_xor(true, Ordering::Relaxed);
+
+    let Some(hooks) = HOOKS.get() else {
+        return;
+    };
+    if hooks.window.is_null() {
+        return;
+    }
+
+    if open {
+        // GUI open: release the cursor.
+        (hooks.set_input_mode)(hooks.window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+    } else {
+        // GUI closed: restore the cursor where Minecraft last had it, then
+        // re-capture it — this avoids a camera jump on the next mouse move.
+        let (lock_x, lock_y) = cursor_lock();
+        (hooks.set_cursor_pos)(hooks.window, lock_x, lock_y);
+        (hooks.set_input_mode)(hooks.window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    }
+}
+
+/// Toggles any module whose keybind matches `key`, when in-world.
+fn handle_module_keybind(key: i32) {
+    let minecraft = Minecraft::instance();
+    if !minecraft.current_screen_is_null() || minecraft.get_player().is_err() {
+        return;
+    }
+
+    let client = DarkClient::instance();
+    let Ok(modules) = client.modules.read() else {
+        return;
+    };
+
+    for module in modules.values() {
+        let mut module = module.lock().unwrap();
+        if module.get_module_data().key_bind as i32 != key {
+            continue;
+        }
+
+        let enabled = !module.get_module_data().enabled;
+        info!(
+            "{} {}",
+            module.get_module_data().name,
+            if enabled { "enabled" } else { "disabled" }
+        );
+        if enabled {
+            let _ = module.on_start();
         } else {
-            unsafe {
-                C_LOCK_X = xpos;
-                C_LOCK_Y = ypos;
-            }
+            let _ = module.on_stop();
         }
-
-        unsafe {
-            if !ORIGINAL_CURSOR_POS.is_null() {
-                let orig: GlfwCursorPosFun = std::mem::transmute(ORIGINAL_CURSOR_POS);
-                orig(window, send_x, send_y);
-            }
-        }
-    }
-
-    extern "C" fn my_key_callback(
-        window: *mut c_void,
-        key: i32,
-        scancode: i32,
-        action: i32,
-        mods: i32,
-    ) {
-        if key == 344 && action == 1 {
-            let next = !GUI_OPEN.load(Ordering::Relaxed);
-            GUI_OPEN.store(next, Ordering::Relaxed);
-            unsafe {
-                if let Some(set_mode) = GLFW_SET_INPUT_MODE {
-                    if !GLFW_WINDOW.is_null() {
-                        if next {
-                            set_mode(GLFW_WINDOW, 0x00033001, 0x00034001);
-                        } else {
-                            if let Some(set_cursor_pos) = GLFW_SET_CURSOR_POS {
-                                set_cursor_pos(GLFW_WINDOW, C_LOCK_X, C_LOCK_Y);
-                            }
-                            set_mode(GLFW_WINDOW, 0x00033001, 0x00034003);
-                        }
-                    }
-                }
-            }
-        }
-        if GUI_OPEN.load(Ordering::Relaxed) {
-            return;
-        }
-
-        // --- Module Toggling ---
-        if action == 1 {
-            let minecraft = crate::mapping::client::minecraft::Minecraft::instance();
-            if minecraft.current_screen_is_null() && minecraft.get_player().is_ok() {
-                let client = crate::client::DarkClient::instance();
-                if let Ok(modules) = client.modules.read() {
-                    for module in modules.values() {
-                        let mut module = module.lock().unwrap();
-                        let module_data = module.get_module_data();
-
-                        if module_data.key_bind as i32 == key {
-                            let enabled = !module_data.enabled;
-                            log::info!(
-                                "{} {}",
-                                module_data.name,
-                                if enabled { "enabled" } else { "disabled" }
-                            );
-                            if enabled {
-                                let _ = module.on_start();
-                            } else {
-                                let _ = module.on_stop();
-                            }
-                            module.get_module_data_mut().set_enabled(enabled);
-                        }
-                    }
-                }
-            }
-        }
-
-        unsafe {
-            if !ORIGINAL_KEY_CB.is_null() {
-                let orig: GlfwKeyFun = std::mem::transmute(ORIGINAL_KEY_CB);
-                orig(window, key, scancode, action, mods);
-            }
-        }
-    }
-
-    static mut GLFW_LIB: Option<Library> = None;
-
-    pub fn init_glfw_hooks() {
-        static HOOKED_ONCE: Once = Once::new();
-        HOOKED_ONCE.call_once(|| unsafe {
-            let lib_result = Library::new("glfw.dll")
-                .or_else(|_| Library::new("glfw3.dll"))
-                .or_else(|_| Library::new("glfw64.dll"));
-
-            let libglfw = match lib_result {
-                Ok(l) => l,
-                Err(_) => {
-                    error!("Could not load glfw.dll on Windows.");
-                    return;
-                }
-            };
-
-            let get_current_context: libloading::Symbol<extern "C" fn() -> *mut c_void> =
-                match libglfw.get(b"glfwGetCurrentContext") {
-                    Ok(sym) => sym,
-                    Err(_) => return,
-                };
-            let set_mouse_button: libloading::Symbol<
-                extern "C" fn(*mut c_void, GlfwMouseButtonFun) -> *mut c_void,
-            > = match libglfw.get(b"glfwSetMouseButtonCallback") {
-                Ok(sym) => sym,
-                Err(_) => return,
-            };
-            let set_cursor_pos: libloading::Symbol<
-                extern "C" fn(*mut c_void, GlfwCursorPosFun) -> *mut c_void,
-            > = match libglfw.get(b"glfwSetCursorPosCallback") {
-                Ok(sym) => sym,
-                Err(_) => return,
-            };
-            let set_key_cb: libloading::Symbol<
-                extern "C" fn(*mut c_void, GlfwKeyFun) -> *mut c_void,
-            > = match libglfw.get(b"glfwSetKeyCallback") {
-                Ok(sym) => sym,
-                Err(_) => return,
-            };
-            let set_input_mode: libloading::Symbol<extern "C" fn(*mut c_void, i32, i32)> =
-                match libglfw.get(b"glfwSetInputMode") {
-                    Ok(sym) => sym,
-                    Err(_) => return,
-                };
-
-            let window = get_current_context();
-            if window.is_null() {
-                return;
-            }
-
-            info!("Successfully got Windows GLFW window. Modifying Hooks...");
-
-            ORIGINAL_MOUSE_BTN = set_mouse_button(window, my_mouse_button_callback);
-            ORIGINAL_CURSOR_POS = set_cursor_pos(window, my_cursor_pos_callback);
-            ORIGINAL_KEY_CB = set_key_cb(window, my_key_callback);
-
-            GLFW_WINDOW = window;
-            GLFW_SET_INPUT_MODE = Some(*set_input_mode);
-
-            if GUI_OPEN.load(Ordering::Relaxed) {
-                (*set_input_mode)(window, 0x00033001, 0x00034001);
-            }
-
-            GLFW_LIB = Some(libglfw);
-        });
-    }
-
-    pub fn cleanup_glfw_hooks() {
-        unsafe {
-            if !GLFW_WINDOW.is_null() && !ORIGINAL_CURSOR_POS.is_null() {
-                if let Some(libglfw) = &GLFW_LIB {
-                    if let Ok(set_mouse_button) = libglfw
-                        .get::<extern "C" fn(*mut c_void, *mut c_void)>(
-                            b"glfwSetMouseButtonCallback",
-                        )
-                    {
-                        set_mouse_button(GLFW_WINDOW, ORIGINAL_MOUSE_BTN);
-                    }
-                    if let Ok(set_cursor_pos) = libglfw
-                        .get::<extern "C" fn(*mut c_void, *mut c_void)>(b"glfwSetCursorPosCallback")
-                    {
-                        set_cursor_pos(GLFW_WINDOW, ORIGINAL_CURSOR_POS);
-                    }
-                    if let Ok(set_key_cb) = libglfw
-                        .get::<extern "C" fn(*mut c_void, *mut c_void)>(b"glfwSetKeyCallback")
-                    {
-                        set_key_cb(GLFW_WINDOW, ORIGINAL_KEY_CB);
-                    }
-                    if let Some(set_mode) = GLFW_SET_INPUT_MODE {
-                        set_mode(GLFW_WINDOW, 0x00033001, 0x00034003);
-                    }
-                }
-            }
-        }
+        module.get_module_data_mut().set_enabled(enabled);
     }
 }
 
+// --- Lifecycle -------------------------------------------------------------
+
+/// Installs the GLFW input hooks once the window exists. Cheap to call every
+/// frame: it returns immediately after the first success and only retries
+/// while the window is not yet available.
 pub fn init() {
-    #[cfg(target_os = "linux")]
-    {
-        linux_input::init_glfw_hooks();
+    if HOOKS.get().is_some() {
+        return;
     }
-    #[cfg(target_os = "windows")]
-    {
-        windows_input::init_glfw_hooks();
+    if let Some(hooks) = install_glfw_hooks() {
+        let _ = HOOKS.set(hooks);
     }
 }
 
+/// Resolves the GLFW symbols, swaps in our callbacks, and captures the state
+/// needed to restore them. Returns `None` until the window is ready.
+fn install_glfw_hooks() -> Option<GlfwHooks> {
+    let library = open_glfw_library()?;
+
+    unsafe {
+        let get_context = *library.get::<GetCurrentContext>(b"glfwGetCurrentContext").ok()?;
+        let set_mouse_button = *library
+            .get::<SetMouseButtonCallback>(b"glfwSetMouseButtonCallback")
+            .ok()?;
+        let set_cursor_pos_cb = *library
+            .get::<SetCursorPosCallback>(b"glfwSetCursorPosCallback")
+            .ok()?;
+        let set_key = *library.get::<SetKeyCallback>(b"glfwSetKeyCallback").ok()?;
+        let set_input_mode = *library.get::<SetInputMode>(b"glfwSetInputMode").ok()?;
+        let set_cursor_pos = *library.get::<SetCursorPos>(b"glfwSetCursorPos").ok()?;
+
+        let window = get_context();
+        if window.is_null() {
+            return None;
+        }
+
+        info!("GLFW window acquired; installing input callbacks.");
+
+        let original_mouse_button = set_mouse_button(window, on_mouse_button);
+        let original_cursor_pos = set_cursor_pos_cb(window, on_cursor_pos);
+        let original_key = set_key(window, on_key);
+
+        // If the GUI was toggled on before hooks existed, release the cursor.
+        if GUI_OPEN.load(Ordering::Relaxed) {
+            set_input_mode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+        }
+
+        Some(GlfwHooks {
+            library,
+            window,
+            original_mouse_button,
+            original_cursor_pos,
+            original_key,
+            set_input_mode,
+            set_cursor_pos,
+        })
+    }
+}
+
+/// Restores the host's original GLFW callbacks and cursor capture. Safe to
+/// call even if the hooks were never installed.
 pub fn cleanup() {
-    #[cfg(target_os = "linux")]
-    {
-        linux_input::cleanup_glfw_hooks();
+    let Some(hooks) = HOOKS.get() else {
+        return;
+    };
+    if hooks.window.is_null() {
+        return;
     }
-    #[cfg(target_os = "windows")]
-    {
-        windows_input::cleanup_glfw_hooks();
+
+    type RestoreCallback = extern "C" fn(*mut c_void, *mut c_void) -> *mut c_void;
+    let restorations: [(&[u8], *mut c_void); 3] = [
+        (b"glfwSetMouseButtonCallback", hooks.original_mouse_button),
+        (b"glfwSetCursorPosCallback", hooks.original_cursor_pos),
+        (b"glfwSetKeyCallback", hooks.original_key),
+    ];
+    unsafe {
+        for (name, original) in restorations {
+            if let Ok(restore) = hooks.library.get::<RestoreCallback>(name) {
+                restore(hooks.window, original);
+            }
+        }
     }
+
+    // Leave Minecraft with its cursor captured, as it expects in-world.
+    (hooks.set_input_mode)(hooks.window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    info!("GLFW input callbacks restored.");
 }

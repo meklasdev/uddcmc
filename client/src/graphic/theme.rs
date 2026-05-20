@@ -50,7 +50,7 @@ pub fn apply(ctx: &Context) {
 
     v.window_fill = BASE;
     v.panel_fill = BASE;
-    v.window_stroke = Stroke::new(1.0, BORDER);
+    v.window_stroke = Stroke::new(1.0_f32, BORDER);
     v.window_rounding = Rounding::same(RADIUS);
     v.window_shadow = egui::epaint::Shadow {
         offset: Vec2::new(0.0, 6.0),
@@ -67,33 +67,33 @@ pub fn apply(ctx: &Context) {
     let w = &mut v.widgets;
 
     w.noninteractive.bg_fill = SURFACE;
-    w.noninteractive.bg_stroke = Stroke::new(1.0, BORDER);
-    w.noninteractive.fg_stroke = Stroke::new(1.0, TEXT_DIM);
+    w.noninteractive.bg_stroke = Stroke::new(1.0_f32, BORDER);
+    w.noninteractive.fg_stroke = Stroke::new(1.0_f32, TEXT_DIM);
 
     w.inactive.bg_fill = SURFACE;
     w.inactive.weak_bg_fill = SURFACE;
-    w.inactive.bg_stroke = Stroke::new(1.0, BORDER);
-    w.inactive.fg_stroke = Stroke::new(1.0, TEXT_DIM);
+    w.inactive.bg_stroke = Stroke::new(1.0_f32, BORDER);
+    w.inactive.fg_stroke = Stroke::new(1.0_f32, TEXT_DIM);
     w.inactive.rounding = Rounding::same(RADIUS_INNER);
     w.inactive.expansion = 0.0;
 
     w.hovered.bg_fill = SURFACE_HOVER;
     w.hovered.weak_bg_fill = SURFACE_HOVER;
-    w.hovered.bg_stroke = Stroke::new(1.0, BORDER);
-    w.hovered.fg_stroke = Stroke::new(1.0, TEXT);
+    w.hovered.bg_stroke = Stroke::new(1.0_f32, BORDER);
+    w.hovered.fg_stroke = Stroke::new(1.0_f32, TEXT);
     w.hovered.rounding = Rounding::same(RADIUS_INNER);
     w.hovered.expansion = 1.0;
 
     w.active.bg_fill = ACCENT;
     w.active.weak_bg_fill = ACCENT;
     w.active.bg_stroke = Stroke::NONE;
-    w.active.fg_stroke = Stroke::new(1.0, Color32::BLACK);
+    w.active.fg_stroke = Stroke::new(1.0_f32, Color32::BLACK);
     w.active.rounding = Rounding::same(RADIUS_INNER);
     w.active.expansion = -1.0;
 
     w.open.bg_fill = SURFACE_HOVER;
-    w.open.bg_stroke = Stroke::new(1.0, BORDER);
-    w.open.fg_stroke = Stroke::new(1.0, TEXT);
+    w.open.bg_stroke = Stroke::new(1.0_f32, BORDER);
+    w.open.fg_stroke = Stroke::new(1.0_f32, TEXT);
 
     style.visuals = v;
 

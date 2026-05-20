@@ -129,7 +129,7 @@ fn draw_card(painter: &Painter, rect: Rect, n: &Notification, remaining: f32) {
     let radius = Rounding::same(theme::RADIUS_INNER);
 
     painter.rect_filled(rect, radius, Color32::from_rgba_unmultiplied(16, 17, 21, 240));
-    painter.rect_stroke(rect, radius, Stroke::new(1.0, theme::BORDER));
+    painter.rect_stroke(rect, radius, Stroke::new(1.0_f32, theme::BORDER));
 
     // Accent rail down the left edge.
     let rail = Rect::from_min_size(rect.min, Vec2::new(4.0, rect.height()));
