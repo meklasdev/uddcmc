@@ -1,6 +1,7 @@
 # 🎮 DarkClient - Minecraft Injection Client
 
-![Rust](https://img.shields.io/badge/Rust-1.90.0-orange.svg)
+![Rust](https://img.shields.io/badge/Rust-1.95.0-orange.svg)
+![Minecraft](https://img.shields.io/badge/Minecraft-26.1.2-green.svg)
 ![License](https://img.shields.io/badge/License-GNU%20GPL-blue)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-lightgrey.svg)
 
@@ -9,9 +10,13 @@ A Minecraft hacked client built in Rust, using JNI (Java Native Interface) for s
 ### Supported Minecraft Versions
 
 - **Obfuscated builds** (≤ 1.21.11): bundled Mojmap mappings (`mappings.json`, currently 1.21.10).
-- **Unobfuscated builds** (26.1+): no mappings needed — names are resolved directly, method signatures via runtime JNI reflection.
+- **Unobfuscated builds** (26.1+): no mappings needed — names are resolved directly, method signatures via runtime JNI reflection. Latest tested: **26.1.2**.
 
 The build auto-detects which mode to use at runtime. A single binary works on both.
+
+## 🖼️ Preview
+
+![DarkClient GUI](assets/screenshot_gui.png)
 
 ## 🚀 Features
 
@@ -49,7 +54,7 @@ The core modification framework featuring:
 
 ## 📋 Prerequisites
 
-- **Rust 1.87.0+** with Cargo package manager
+- **Rust 1.95.0+** with Cargo package manager
 - **Java Development Kit (JDK) 21+**
 - **Minecraft Java Edition**
 
