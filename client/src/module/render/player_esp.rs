@@ -15,7 +15,7 @@ impl PlayerEspModule {
             module: ModuleData {
                 name: "Player ESP".to_string(),
                 description: "Draws a 3D box around players".to_string(),
-                category: ModuleCategory::RENDER,
+                category: ModuleCategory::Render,
                 key_bind: KeyboardKey::KeyNone,
                 enabled: false,
                 settings: vec![

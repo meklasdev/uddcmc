@@ -1,0 +1,9 @@
+[package]
+name = "protocol"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+log.workspace = true
+simplelog.workspace = true
+thiserror.workspace = true

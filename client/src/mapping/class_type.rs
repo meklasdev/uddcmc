@@ -59,9 +59,7 @@ impl MinecraftClassType {
             MinecraftClassType::Component => "net/minecraft/network/chat/Component",
             MinecraftClassType::LevelReader => "net/minecraft/world/level/LevelReader",
             MinecraftClassType::LevelChunk => "net/minecraft/world/level/chunk/LevelChunk",
-            MinecraftClassType::BlockEntity => {
-                "net/minecraft/world/level/block/entity/BlockEntity"
-            }
+            MinecraftClassType::BlockEntity => "net/minecraft/world/level/block/entity/BlockEntity",
             MinecraftClassType::ChestBlockEntity => {
                 "net/minecraft/world/level/block/entity/ChestBlockEntity"
             }

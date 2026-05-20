@@ -6,7 +6,6 @@
 //! [`MinecraftClass`] with identity names and reflected signatures, which the
 //! rest of the mapping layer then treats exactly like a JSON-parsed entry.
 
-use crate::client::DarkClient;
 use crate::mapping::class::{Method, MinecraftClass};
 use crate::mapping::Mapping;
 use jni::objects::{JObject, JObjectArray, JString};
@@ -16,7 +15,7 @@ use std::collections::HashMap;
 /// Reflects every method declared on — or inherited as public by —
 /// `class_name`, returning it as a [`MinecraftClass`].
 pub fn reflect_class(mapping: &Mapping, class_name: &str) -> anyhow::Result<MinecraftClass> {
-    let mut env = DarkClient::instance().get_env()?;
+    let mut env = mapping.get_env()?;
 
     let jclass: JObject = mapping.resolve_class(&mut env, class_name)?.into();
 
@@ -28,7 +27,10 @@ pub fn reflect_class(mapping: &Mapping, class_name: &str) -> anyhow::Result<Mine
         collect_methods(&mut env, &jclass, accessor, &mut methods)?;
     }
 
-    Ok(MinecraftClass::from_reflection(class_name.to_owned(), methods))
+    Ok(MinecraftClass::from_reflection(
+        class_name.to_owned(),
+        methods,
+    ))
 }
 
 /// Calls `accessor` (a `Method[]`-returning method of `Class`) and folds every

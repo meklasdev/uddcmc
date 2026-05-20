@@ -1,5 +1,5 @@
-use crate::mapping::client::minecraft::Minecraft;
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleSetting};
+use crate::state::minecraft;
 
 #[derive(Debug)]
 pub struct FlyModule {
@@ -12,7 +12,7 @@ impl FlyModule {
             module: ModuleData {
                 name: "Fly".to_string(),
                 description: "Enables flying".to_string(),
-                category: ModuleCategory::MOVEMENT,
+                category: ModuleCategory::Movement,
                 key_bind: KeyboardKey::KeyF,
                 enabled: false,
                 settings: vec![ModuleSetting::Slider {
@@ -35,13 +35,19 @@ impl FlyModule {
 
 impl Module for FlyModule {
     fn on_start(&self) -> anyhow::Result<()> {
-        // Enables flying
-        Minecraft::instance().get_player()?.abilities.fly(true)
+        // Enable flying, if the player is in a world.
+        if let Some(player) = minecraft().player()? {
+            player.abilities.fly(true)?;
+        }
+        Ok(())
     }
 
     fn on_stop(&self) -> anyhow::Result<()> {
-        // Disables flying
-        Minecraft::instance().get_player()?.abilities.fly(false)
+        // Disable flying, if the player is in a world.
+        if let Some(player) = minecraft().player()? {
+            player.abilities.fly(false)?;
+        }
+        Ok(())
     }
 
     fn on_tick(&self) -> anyhow::Result<()> {

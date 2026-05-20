@@ -5,8 +5,7 @@
 //! Minecraft. The logic is platform-agnostic; only locating the GLFW shared
 //! library differs between Linux and Windows (see [`open_glfw_library`]).
 
-use crate::client::DarkClient;
-use crate::mapping::client::minecraft::Minecraft;
+use crate::state::{client, minecraft};
 use libloading::Library;
 use log::info;
 use std::ffi::c_void;
@@ -108,27 +107,6 @@ fn cursor_lock() -> (f64, f64) {
 fn set_cursor_lock(x: f64, y: f64) {
     CURSOR_LOCK_X.store(x.to_bits(), Ordering::Relaxed);
     CURSOR_LOCK_Y.store(y.to_bits(), Ordering::Relaxed);
-}
-
-// --- Platform library lookup ----------------------------------------------
-
-/// Opens the GLFW shared library the host process loaded.
-#[cfg(target_os = "linux")]
-fn open_glfw_library() -> Option<Library> {
-    let path = crate::graphic::hook::find_library_path("libglfw.so")
-        .unwrap_or_else(|| "libglfw.so".to_string());
-    unsafe { Library::new(path).ok() }
-}
-
-/// Opens the GLFW shared library, trying the names Minecraft launchers use.
-#[cfg(target_os = "windows")]
-fn open_glfw_library() -> Option<Library> {
-    unsafe {
-        Library::new("glfw.dll")
-            .or_else(|_| Library::new("glfw3.dll"))
-            .or_else(|_| Library::new("glfw64.dll"))
-            .ok()
-    }
 }
 
 // --- Callbacks -------------------------------------------------------------
@@ -238,18 +216,15 @@ fn toggle_gui() {
 
 /// Toggles any module whose keybind matches `key`, when in-world.
 fn handle_module_keybind(key: i32) {
-    let minecraft = Minecraft::instance();
-    if !minecraft.current_screen_is_null() || minecraft.get_player().is_err() {
+    let minecraft = minecraft();
+    if !minecraft.current_screen_is_null() || !minecraft.in_world() {
         return;
     }
 
-    let client = DarkClient::instance();
-    let Ok(modules) = client.modules.read() else {
-        return;
-    };
-
-    for module in modules.values() {
-        let mut module = module.lock().unwrap();
+    for handle in client().modules.handles() {
+        let Ok(mut module) = handle.lock() else {
+            continue;
+        };
         if module.get_module_data().key_bind as i32 != key {
             continue;
         }
@@ -286,10 +261,12 @@ pub fn init() {
 /// Resolves the GLFW symbols, swaps in our callbacks, and captures the state
 /// needed to restore them. Returns `None` until the window is ready.
 fn install_glfw_hooks() -> Option<GlfwHooks> {
-    let library = open_glfw_library()?;
+    let library = crate::graphic::platform::open_glfw_library()?;
 
     unsafe {
-        let get_context = *library.get::<GetCurrentContext>(b"glfwGetCurrentContext").ok()?;
+        let get_context = *library
+            .get::<GetCurrentContext>(b"glfwGetCurrentContext")
+            .ok()?;
         let set_mouse_button = *library
             .get::<SetMouseButtonCallback>(b"glfwSetMouseButtonCallback")
             .ok()?;

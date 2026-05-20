@@ -1,6 +1,6 @@
-use crate::mapping::client::minecraft::Minecraft;
-use crate::mapping::{GameContext, MinecraftClassType};
+use crate::mapping::MinecraftClassType;
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleSetting};
+use crate::state::{mapping, minecraft};
 
 #[derive(Debug)]
 pub struct BaseAura {
@@ -19,7 +19,7 @@ impl BaseAura {
             module: ModuleData {
                 name,
                 description,
-                category: ModuleCategory::COMBAT,
+                category: ModuleCategory::Combat,
                 key_bind,
                 enabled: false,
                 settings: vec![ModuleSetting::Slider {
@@ -51,11 +51,15 @@ impl Module for BaseAura {
     }
 
     fn on_tick(&self) -> anyhow::Result<()> {
-        let minecraft = Minecraft::instance();
-        let player = &minecraft.get_player()?;
-        let world = &minecraft.world;
-        let game_mode = &minecraft.game_mode;
-        let mapping = minecraft.mapping();
+        let minecraft = minecraft();
+        let (Some(player), Some(world), Some(game_mode)) = (
+            minecraft.player()?,
+            minecraft.world()?,
+            minecraft.game_mode()?,
+        ) else {
+            return Ok(()); // not in a world — nothing to do
+        };
+        let mapping = mapping();
 
         let entities = world.get_entities()?;
         let range = self.get_range() as f64;
@@ -79,7 +83,7 @@ impl Module for BaseAura {
             .sqrt();
 
             if dist <= range {
-                game_mode.attack(player, &entity)?;
+                game_mode.attack(&player, &entity)?;
             }
         }
 

@@ -1,4 +1,5 @@
-use crate::mapping::{FieldType, GameContext, MinecraftClassType};
+use crate::mapping::{FieldType, MinecraftClassType};
+use crate::state::mapping;
 use jni::objects::{GlobalRef, JValue};
 use std::ops::Deref;
 
@@ -15,8 +16,6 @@ pub struct Entity {
     pub jni_ref: GlobalRef,
 }
 
-impl GameContext for Entity {}
-
 #[allow(dead_code)]
 impl Entity {
     pub fn new(jni_ref: GlobalRef) -> Entity {
@@ -24,9 +23,7 @@ impl Entity {
     }
 
     pub fn get_position(&self) -> anyhow::Result<(f64, f64, f64)> {
-        let mapping = self.mapping();
-
-        let vec3 = mapping
+        let vec3 = mapping()
             .call_method(
                 MinecraftClassType::Entity,
                 self.jni_ref.as_obj(),
@@ -35,15 +32,15 @@ impl Entity {
             )?
             .l()?;
 
-        let x = mapping
+        let x = mapping()
             .get_field(MinecraftClassType::Vec3, &vec3, "x", FieldType::Double)?
             .d()?;
 
-        let y = mapping
+        let y = mapping()
             .get_field(MinecraftClassType::Vec3, &vec3, "y", FieldType::Double)?
             .d()?;
 
-        let z = mapping
+        let z = mapping()
             .get_field(MinecraftClassType::Vec3, &vec3, "z", FieldType::Double)?
             .d()?;
 
@@ -51,9 +48,7 @@ impl Entity {
     }
 
     pub fn set_invulnerable(&self, value: bool) -> anyhow::Result<()> {
-        let mapping = self.mapping();
-
-        mapping.call_method(
+        mapping().call_method(
             MinecraftClassType::Entity,
             self.jni_ref.as_obj(),
             "setInvulnerable",
@@ -64,9 +59,7 @@ impl Entity {
     }
 
     pub fn get_fall_distance(&self) -> anyhow::Result<f64> {
-        let mapping = self.mapping();
-
-        Ok(mapping
+        Ok(mapping()
             .get_field(
                 MinecraftClassType::Entity,
                 self.jni_ref.as_obj(),
@@ -77,9 +70,7 @@ impl Entity {
     }
 
     pub fn reset_fall_distance(&self) -> anyhow::Result<()> {
-        let mapping = self.mapping();
-
-        Ok(mapping
+        Ok(mapping()
             .call_method(
                 MinecraftClassType::Entity,
                 self.jni_ref.as_obj(),
@@ -90,10 +81,8 @@ impl Entity {
     }
 
     pub fn get_name(&self) -> anyhow::Result<String> {
-        let mapping = self.mapping();
-
-        mapping.get_string(
-            mapping
+        mapping().get_string(
+            mapping()
                 .call_method(
                     MinecraftClassType::Entity,
                     self.jni_ref.as_obj(),
@@ -105,9 +94,7 @@ impl Entity {
     }
 
     pub fn get_tick_count(&self) -> anyhow::Result<i32> {
-        let mapping = self.mapping();
-
-        Ok(mapping
+        Ok(mapping()
             .get_field(
                 MinecraftClassType::Entity,
                 self.jni_ref.as_obj(),

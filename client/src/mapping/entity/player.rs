@@ -1,5 +1,6 @@
 use crate::mapping::entity::Entity;
-use crate::mapping::{FieldType, GameContext, Mapping, MinecraftClassType};
+use crate::mapping::{FieldType, MinecraftClassType};
+use crate::state::mapping;
 use jni::objects::{GlobalRef, JValue};
 use jni::sys::jboolean;
 use std::ops::Deref;
@@ -16,48 +17,31 @@ pub struct Abilities {
     pub jni_ref: GlobalRef,
 }
 
-impl GameContext for LocalPlayer {}
-impl GameContext for Abilities {}
-
 impl LocalPlayer {
-    pub fn new(minecraft: &GlobalRef, mapping: &Mapping) -> anyhow::Result<Self> {
-        let player_obj = mapping
-            .get_field(
-                MinecraftClassType::Minecraft,
-                minecraft.as_obj(),
-                "player",
-                FieldType::Object(MinecraftClassType::LocalPlayer, mapping),
-            )?
-            .l()?;
-
-        let player_ref = mapping.new_global_ref(player_obj)?;
-        let abilities = Abilities::new(player_ref.clone(), mapping)?;
-        let entity = Entity::new(player_ref.clone());
-
+    /// Wraps an existing `LocalPlayer` JVM object.
+    pub fn new(player_ref: GlobalRef) -> anyhow::Result<Self> {
         Ok(Self {
+            abilities: Abilities::new(player_ref.clone())?,
+            entity: Entity::new(player_ref.clone()),
             jni_ref: player_ref,
-            abilities,
-            entity,
         })
     }
 }
 
 impl Abilities {
-    pub fn new(player: GlobalRef, mapping: &Mapping) -> anyhow::Result<Self> {
-        let jni_ref = mapping
+    pub fn new(player: GlobalRef) -> anyhow::Result<Self> {
+        let jni_ref = mapping()
             .call_method(MinecraftClassType::Player, &player, "getAbilities", &[])?
             .l()?;
         Ok(Self {
-            jni_ref: mapping.new_global_ref(jni_ref)?,
+            jni_ref: mapping().new_global_ref(jni_ref)?,
         })
     }
 
     pub fn fly(&self, value: bool) -> anyhow::Result<()> {
-        let mapping = self.mapping();
-
         let value: jboolean = if value { 1 } else { 0 };
 
-        mapping.set_field(
+        mapping().set_field(
             MinecraftClassType::Abilities,
             self.jni_ref.as_obj(),
             "flying",
@@ -65,7 +49,7 @@ impl Abilities {
             JValue::Bool(value),
         )?;
 
-        mapping.set_field(
+        mapping().set_field(
             MinecraftClassType::Abilities,
             self.jni_ref.as_obj(),
             "mayfly",
@@ -78,9 +62,7 @@ impl Abilities {
 
     #[allow(dead_code)]
     pub fn get_may_fly(&self) -> anyhow::Result<bool> {
-        let mapping = self.mapping();
-
-        Ok(mapping
+        Ok(mapping()
             .get_field(
                 MinecraftClassType::Abilities,
                 self.jni_ref.as_obj(),

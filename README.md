@@ -38,22 +38,27 @@ DarkClient runs on **vanilla Minecraft**, **Fabric**, and **Forge/NeoForge**. It
 
 ## 🏗️ Architecture
 
-The project is organized into three main components:
+A Cargo workspace of four crates plus an `xtask` helper:
 
-### 1. **Injector** (`injector/`)
-A user-friendly GUI application that handles:
+### **Protocol** (`protocol/`)
+The shared contract between the injector and the agent: the localhost
+socket address and the typed command set, defined once so the two ends
+cannot drift apart.
+
+### **Injector** (`injector/`)
+The injection tool — a redesigned egui GUI, a `--tui` terminal mode and
+`--list` / `--inject <pid>` headless modes — that handles:
 - Process detection (finding Minecraft instances)
-- Library injection into target processes
+- Library injection into target processes (per-platform, behind a trait)
 - Status monitoring and error reporting
 
-### 2. **Agent Loader** (`agent_loader/`)
-A JVMTI agent that provides:
-- Dynamic library loading capabilities
-- TCP command server for hot-reloading
-- Process lifecycle management
-- Cross-platform injection support
+### **Agent Loader** (`agent_loader/`)
+A `cdylib` injected into the JVM. On load it provides:
+- Dynamic library loading and hot-reloading of the client
+- A TCP command server
+- A JVM health monitor and clean process lifecycle handling
 
-### 3. **Client Library** (`client/`)
+### **Client Library** (`client/`)
 The core modification framework featuring:
 - JNI integration with Minecraft's runtime
 - Module system for game modifications
@@ -112,11 +117,12 @@ python conversion.py
 > [!WARNING]
 > `libagent_loader` and `libclient` **must** be in the **same directory** where you run the injector.
 
-2. **Start Minecraft** and load into a world
+2. **Start Minecraft** — you can inject from the main menu; modules stay
+   idle until you load a world
 
 3. **In the Injector GUI**:
-- Click "Find" to detect the Minecraft process
-- Click "Inject" to load the modification framework
+- Click "Scan" to detect the Minecraft process
+- Select it and click "Inject" to load the modification framework
 
 4. **Use Modules**:
 - Modules can be toggled using their assigned keybinds
@@ -143,34 +149,40 @@ impl Module for CustomModule {
       &mut self.data
    }
 
-   fn on_start(&self) {
-      // Called when module is enabled
+   fn on_start(&self) -> anyhow::Result<()> {
+      // Called when the module is enabled.
+      Ok(())
    }
 
-   fn on_stop(&self) {
-      // Called when module is disabled
+   fn on_stop(&self) -> anyhow::Result<()> {
+      // Called when the module is disabled.
+      Ok(())
    }
 
-   fn on_tick(&self) {
-      // Called every game tick while enabled
+   fn on_tick(&self) -> anyhow::Result<()> {
+      // Called every game tick while enabled.
+      Ok(())
    }
 }
 ```
+
+Register it in `register_modules()` in `client/src/lib.rs`.
 ```text
 DarkClient/
-├── 📁 client/               # Core modification library
-│   ├── 📁 src/
-│   │   ├── 📄 lib.rs        # Main library entry point
-│   │   ├── 📄 client.rs     # DarkClient core & JVM integration
-│   │   ├── 📁 mapping/      # Minecraft mapping system
-│   │   └── 📁 module/       # Module framework
-├── 📁 injector/             # GUI injection tool
+├── 📁 protocol/             # Shared injector ⇆ agent IPC contract
+├── 📁 injector/             # Injection tool (GUI / TUI / headless CLI)
+├── 📁 agent_loader/         # Injected cdylib: command server + client lifecycle
+├── 📁 client/               # Core modification framework
 │   └── 📁 src/
-│       └── 📄 main.rs       # Injector application
-├── 📁 agent_loader/         # JVMTI agent for dynamic loading
+│       ├── 📄 lib.rs        # Entry points (initialize_client / cleanup_client)
+│       ├── 📄 state.rs      # Global client + mapping state
+│       ├── 📁 mapping/      # Minecraft mapping system (obfuscated + reflected)
+│       ├── 📁 graphic/      # Overlay, hooks, input, platform seam
+│       └── 📁 module/       # Module framework + registry
+├── 📁 xtask/                # Workspace task runner (cargo xtask e2e)
 ├── 📄 mappings.json         # Minecraft obfuscation mappings
 ├── 📄 conversion.py         # Mapping conversion utility
-└── 📄 Cargo.toml           # Workspace configuration
+└── 📄 Cargo.toml            # Workspace configuration
 ```
 
 ## 🔧 Configuration
@@ -180,9 +192,10 @@ Logs are written to:
 - - Client library logs `dark_client.log` is located in .minecraft
 
 ### Network Settings
-The agent loader uses TCP port `7878` for communication. This can be modified in : `platform/mod.rs`
+The injector and agent communicate over TCP `127.0.0.1:7878`, defined once in the `protocol` crate:
 ```rust
-pub const SOCKET_ADDRESS: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 7878);
+// protocol/src/lib.rs
+pub const SOCKET_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 7878);
 ```
 
 ## 🤝 Contributing

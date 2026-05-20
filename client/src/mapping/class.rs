@@ -1,4 +1,4 @@
-use crate::client::DarkClient;
+use crate::state;
 use anyhow::anyhow;
 use jni::objects::{JClass, JObject, JString, JValue, JValueOwned};
 use jni::JNIEnv;
@@ -112,10 +112,10 @@ impl MinecraftClass {
     }
 
     pub fn get_method(&self, name: &str) -> anyhow::Result<&Method> {
-        match self.methods.get(name).unwrap().first() {
-            Some(method) => Ok(method),
-            None => Err(anyhow!("{} method not found", name)),
-        }
+        self.methods
+            .get(name)
+            .and_then(|overloads| overloads.first())
+            .ok_or_else(|| anyhow!("{} method not found", name))
     }
 
     pub fn get_methods(&self, name: &str) -> anyhow::Result<&Vec<Method>> {
@@ -254,7 +254,7 @@ impl MinecraftClass {
                 // Object types
                 'L' => {
                     let mut object_type = String::from("L");
-                    while let Some(ch) = chars.next() {
+                    for ch in chars.by_ref() {
                         object_type.push(ch);
                         if ch == ';' {
                             break;
@@ -271,7 +271,7 @@ impl MinecraftClass {
                                 array_type.push(chars.next().unwrap());
                             }
                             'L' => {
-                                while let Some(ch) = chars.next() {
+                                for ch in chars.by_ref() {
                                     array_type.push(ch);
                                     if ch == ';' {
                                         break;
@@ -369,7 +369,7 @@ impl MinecraftClass {
         }
 
         // Get JNI environment to check actual object type
-        if let Ok(mut env) = DarkClient::instance().get_env() {
+        if let Ok(mut env) = state::env() {
             // Get the actual class of the object
             if let Ok(obj_class) = env.get_object_class(obj) {
                 // Check for exact class match first
@@ -411,7 +411,7 @@ impl MinecraftClass {
             return SignatureMatch::Compatible;
         }
 
-        if let Ok(mut env) = DarkClient::instance().get_env() {
+        if let Ok(mut env) = state::env() {
             // Check if the object is actually an array
             if let Ok(obj_class) = env.get_object_class(obj) {
                 if let Ok(class_name) = self.get_class_name_from_object(&mut env, &obj_class) {
@@ -595,5 +595,51 @@ mod tests {
             class.check_type_compatibility("I", &JValue::Double(42.0)),
             SignatureMatch::Incompatible
         );
+    }
+
+    #[test]
+    fn methods_deserialize_from_a_single_object_or_an_array() {
+        let json = r#"{
+            "name": "Obf",
+            "methods": {
+                "single": { "name": "a", "signature": "()V" },
+                "many": [
+                    { "name": "b", "signature": "(I)V" },
+                    { "name": "b", "signature": "(F)V" }
+                ]
+            },
+            "fields": {}
+        }"#;
+        let class: MinecraftClass = serde_json::from_str(json).unwrap();
+        assert_eq!(class.get_methods("single").unwrap().len(), 1);
+        assert_eq!(class.get_methods("many").unwrap().len(), 2);
+    }
+
+    #[test]
+    fn overload_resolution_prefers_an_exact_primitive_match() {
+        let mut methods = HashMap::new();
+        methods.insert(
+            "foo".to_string(),
+            vec![
+                Method {
+                    name: "foo".into(),
+                    signature: "(D)V".into(),
+                    id: OnceLock::new(),
+                },
+                Method {
+                    name: "foo".into(),
+                    signature: "(I)V".into(),
+                    id: OnceLock::new(),
+                },
+            ],
+        );
+        let class = MinecraftClass {
+            name: "T".into(),
+            methods,
+            fields: HashMap::new(),
+        };
+
+        let chosen = class.get_method_by_args("foo", &[JValue::Int(7)]).unwrap();
+        assert_eq!(chosen.signature, "(I)V");
     }
 }

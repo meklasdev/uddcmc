@@ -7,15 +7,21 @@ build = "build.rs"
 [lib]
 name = "agent_loader"
 crate-type = ["cdylib"]
+# No unit tests: the agent only does meaningful work inside a live JVM
+# process, so a standalone test binary would just fail to link the JNI
+# symbols the host JVM provides at load time.
+test = false
 
 [features]
 default = ["ctor/used_linker"]
 used_linker = []
 
 [dependencies]
-ctor = "0.2.8"
-log = "0.4.25"
-simplelog = "0.12.2"
+ctor.workspace = true
+log.workspace = true
+jni.workspace = true
 libloading = "0.8.0"
-jni = "0.21"
-libc = "0.2"
+protocol = { path = "../protocol" }
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true

@@ -1,8 +1,7 @@
-use crate::mapping::client::minecraft::Minecraft;
 use crate::mapping::FieldType;
-use crate::mapping::GameContext;
 use crate::mapping::MinecraftClassType;
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleSetting};
+use crate::state::{mapping, minecraft};
 use jni::objects::JValue;
 
 #[derive(Debug)]
@@ -16,7 +15,7 @@ impl AimbotModule {
             module: ModuleData {
                 name: "Aimbot".to_string(),
                 description: "Automatically aims at entities".to_string(),
-                category: ModuleCategory::COMBAT,
+                category: ModuleCategory::Combat,
                 key_bind: KeyboardKey::KeyC,
                 enabled: false,
                 settings: vec![ModuleSetting::Slider {
@@ -47,13 +46,14 @@ impl Module for AimbotModule {
     }
 
     fn on_tick(&self) -> anyhow::Result<()> {
-        let minecraft = Minecraft::instance();
-        let player = &minecraft.get_player()?;
-        let world = &minecraft.world;
+        let minecraft = minecraft();
+        let (Some(player), Some(world)) = (minecraft.player()?, minecraft.world()?) else {
+            return Ok(()); // not in a world — nothing to do
+        };
 
         let entities = world.get_entities()?;
         let range = self.get_range() as f64;
-        let mapping = minecraft.mapping();
+        let mapping = mapping();
 
         let player_pos = player.entity.get_position()?;
         let mut closest_dist = range;
@@ -86,8 +86,6 @@ impl Module for AimbotModule {
             let dist = (dx * dx + dz * dz).sqrt();
             let yaw = (dz.atan2(dx) * 180.0 / std::f64::consts::PI) as f32 - 90.0;
             let pitch = (-(dy.atan2(dist)) * 180.0 / std::f64::consts::PI) as f32;
-
-            let mapping = player.mapping();
 
             // Set yaw
             mapping.set_field(

@@ -9,20 +9,28 @@ crate-type = ["cdylib"]
 
 [dependencies]
 egui.workspace = true
-#eframe.workspace = true
-egui_glow = "0.29.0"
-glow = "0.14.0"
-#winit = "0.30"
 log.workspace = true
 simplelog.workspace = true
-jni = "0.21.1"
-serde = { version = "1.0.210", features = ["derive"] }
+jni.workspace = true
+serde.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+dashmap.workspace = true
+libc.workspace = true
+egui_glow = "0.29.0"
+glow = "0.14.0"
 serde_json = "1.0.135"
-anyhow = "1.0"
-libc = "0.2.178"
 libloading = "0.9.0"
 ilhook = "2.3.0"
 lazy_static = "1.4.0"
 
+[dev-dependencies]
+# The `invocation` feature provides `JavaVM::new`, used by the in-process
+# JVM integration tests (client/src/mapping/jvm_test.rs).
+jni = { workspace = true, features = ["invocation"] }
+
 [build-dependencies]
 gl_generator = "0.14"
+
+[target.'cfg(target_os = "linux")'.build-dependencies]
+java-locator = "0.1"

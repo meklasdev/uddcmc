@@ -24,9 +24,11 @@ impl MinecraftVersion {
             patch,
         }
     }
+}
 
-    pub fn to_string(&self) -> String {
-        format!("{}.{}.{}", self.major, self.minor, self.patch)
+impl std::fmt::Display for MinecraftVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
     }
 }
 

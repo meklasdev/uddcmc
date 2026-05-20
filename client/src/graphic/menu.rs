@@ -5,7 +5,6 @@
 //! per frame; all motion goes through [`anim`], so it is frame-rate
 //! independent and needs no per-widget state threaded through the call tree.
 
-use crate::client::DarkClient;
 use crate::graphic::anim::{self, Easing, SpringCfg};
 use crate::graphic::input::LAST_KEY_PRESSED;
 use crate::graphic::notification::{Notification, NotificationType};
@@ -42,10 +41,7 @@ type ModuleMap = HashMap<String, ModuleArc>;
 pub fn draw(ctx: &Context, progress: f32) {
     draw_backdrop(ctx, progress);
 
-    let registry = match DarkClient::instance().modules.read() {
-        Ok(guard) => guard,
-        Err(_) => return,
-    };
+    let registry = crate::state::client().modules.by_name();
 
     // Single lock per module: collect the data layout needs, nothing more.
     let mut entries: Vec<(String, ModuleCategory)> = registry
@@ -62,11 +58,11 @@ pub fn draw(ctx: &Context, progress: f32) {
 
     // Auto-layout: place non-empty categories left-to-right, wrapping rows.
     let categories = [
-        ModuleCategory::COMBAT,
-        ModuleCategory::MOVEMENT,
-        ModuleCategory::RENDER,
-        ModuleCategory::PLAYER,
-        ModuleCategory::WORLD,
+        ModuleCategory::Combat,
+        ModuleCategory::Movement,
+        ModuleCategory::Render,
+        ModuleCategory::Player,
+        ModuleCategory::World,
     ];
     let screen_w = ctx.screen_rect().width();
     let mut slot = Pos2::new(ORIGIN_X, ORIGIN_Y);
@@ -128,19 +124,17 @@ fn draw_toolbar(ctx: &Context, progress: f32) {
                         );
                         ui.add_space(16.0);
 
-                        let panic = Button::new(
-                            RichText::new("Panic").size(12.5).color(theme::DANGER),
-                        )
-                        .fill(theme::ELEVATED);
+                        let panic =
+                            Button::new(RichText::new("Panic").size(12.5).color(theme::DANGER))
+                                .fill(theme::ELEVATED);
                         if ui.add(panic).clicked() {
                             std::thread::spawn(crate::graphic::ui_engine::call_panic);
                         }
 
                         ui.add_space(6.0);
-                        let reset = Button::new(
-                            RichText::new("Reset").size(12.5).color(theme::TEXT_DIM),
-                        )
-                        .fill(theme::ELEVATED);
+                        let reset =
+                            Button::new(RichText::new("Reset").size(12.5).color(theme::TEXT_DIM))
+                                .fill(theme::ELEVATED);
                         if ui.add(reset).clicked() {
                             // Drop stored panel targets — they spring back home.
                             ctx.memory_mut(|mem| mem.reset_areas());
@@ -166,7 +160,12 @@ fn draw_panel(
     // rendered position toward it, frame-rate independently.
     let target_id = Id::new("panel_target").with(name);
     let target = ctx.data_mut(|d| *d.get_temp_mut_or_insert_with(target_id, || slot));
-    let pos = anim::spring_pos(ctx, Id::new("panel_pos").with(name), target, SpringCfg::PANEL);
+    let pos = anim::spring_pos(
+        ctx,
+        Id::new("panel_pos").with(name),
+        target,
+        SpringCfg::PANEL,
+    );
 
     // Spawn animation: slide the panel up into place as the menu opens.
     let render_pos = pos + Vec2::new(0.0, 16.0 * (1.0 - progress));
@@ -242,8 +241,20 @@ fn draw_module_row(ui: &mut Ui, name: &str, arc: &ModuleArc, registry: &ModuleMa
     );
 
     let ctx = ui.ctx();
-    let hover = anim::toggle(ctx, Id::new("row_hov").with(name), response.hovered(), 0.12, Easing::Out);
-    let enable = anim::toggle(ctx, Id::new("row_en").with(name), enabled, 0.18, Easing::Out);
+    let hover = anim::toggle(
+        ctx,
+        Id::new("row_hov").with(name),
+        response.hovered(),
+        0.12,
+        Easing::Out,
+    );
+    let enable = anim::toggle(
+        ctx,
+        Id::new("row_en").with(name),
+        enabled,
+        0.18,
+        Easing::Out,
+    );
 
     // --- paint base row ---
     {
@@ -295,7 +306,11 @@ fn draw_module_row(ui: &mut Ui, name: &str, arc: &ModuleArc, registry: &ModuleMa
     if has_settings {
         let expand = anim::toggle(ui.ctx(), expand_id, expanded, 0.2, Easing::InOut);
         let hovered_arrow = arrow_zone.contains(ui.ctx().pointer_hover_pos().unwrap_or(Pos2::ZERO));
-        let chevron_color = if hovered_arrow { theme::TEXT } else { theme::TEXT_MUTED };
+        let chevron_color = if hovered_arrow {
+            theme::TEXT
+        } else {
+            theme::TEXT_MUTED
+        };
         paint_chevron(ui.painter(), arrow_zone.center(), expand, chevron_color);
 
         if expand > 0.001 {
@@ -417,7 +432,11 @@ fn keybind_row(ui: &mut Ui, data: &mut ModuleData, arc: &ModuleArc, registry: &M
                 data.key_bind.to_string()
             };
 
-            let color = if listening { theme::ACCENT } else { theme::TEXT_DIM };
+            let color = if listening {
+                theme::ACCENT
+            } else {
+                theme::TEXT_DIM
+            };
             let button = Button::new(RichText::new(caption).size(12.0).color(color))
                 .fill(theme::ELEVATED)
                 .stroke(Stroke::NONE);
@@ -460,7 +479,7 @@ fn capture_keybind(data: &mut ModuleData, arc: &ModuleArc, registry: &ModuleMap)
             Notification::send(
                 NotificationType::Warning,
                 "Keybind in use",
-                &format!("'{}' is bound to {}", owner_name, key.to_string()),
+                &format!("'{owner_name}' is bound to {key}"),
             );
             return true;
         }

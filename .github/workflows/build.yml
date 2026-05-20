@@ -25,6 +25,12 @@ jobs:
           toolchain: ${{ matrix.os == 'windows-latest' && 'nightly' || 'stable' }}
           components: rustfmt, clippy
 
+      # Caches the Cargo registry, the git database and the target directory.
+      # Keyed on the OS, the toolchain and Cargo.lock, so unchanged
+      # dependencies are not rebuilt on every run.
+      - name: Cache Rust dependencies and build artifacts
+        uses: Swatinem/rust-cache@v2
+
       - name: Install Java
         uses: actions/setup-java@v4
         with:
