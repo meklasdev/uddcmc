@@ -35,13 +35,19 @@ impl FlyModule {
 
 impl Module for FlyModule {
     fn on_start(&self) -> anyhow::Result<()> {
-        // Enables flying
-        minecraft().get_player()?.abilities.fly(true)
+        // Enable flying, if the player is in a world.
+        if let Some(player) = minecraft().player()? {
+            player.abilities.fly(true)?;
+        }
+        Ok(())
     }
 
     fn on_stop(&self) -> anyhow::Result<()> {
-        // Disables flying
-        minecraft().get_player()?.abilities.fly(false)
+        // Disable flying, if the player is in a world.
+        if let Some(player) = minecraft().player()? {
+            player.abilities.fly(false)?;
+        }
+        Ok(())
     }
 
     fn on_tick(&self) -> anyhow::Result<()> {

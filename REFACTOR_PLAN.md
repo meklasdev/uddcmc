@@ -310,10 +310,11 @@ Each phase = one commit, compiles, behavior unchanged (except Phase 5).
 ### Phase 6 — client: error handling
 - `ClientError` (thiserror) at mapping/JNI boundaries; `lock_or_err` helper.
 - Remove critical-path `.unwrap()`; `tick()` and `init()` stop panicking.
+- Convert the mapping caches (`classes`, `class_handles`) to `DashMap`.
 - ✅ `cargo check -p client` + `cargo test -p client`.
 
 ### Phase 7 — client: module system
-- `ModuleRegistry` with a single `Mutex<Vec<_>>`; tidy `Module` trait;
+- `ModuleRegistry` backed by `DashMap`; tidy `Module` trait;
   keep explicit `register_modules()` (zero-dep, lean).
 - Every world-dependent module `on_tick` early-returns `Ok(())` when not in
   world — completes the menu-injection fix.

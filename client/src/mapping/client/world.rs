@@ -1,6 +1,6 @@
 use crate::mapping::entity::Entity;
 use crate::mapping::java::iterable::Iterable;
-use crate::mapping::{FieldType, MinecraftClassType};
+use crate::mapping::MinecraftClassType;
 use crate::state::mapping;
 use jni::objects::GlobalRef;
 use std::ops::Deref;
@@ -11,19 +11,9 @@ pub struct World {
 }
 
 impl World {
-    pub fn new(minecraft: &GlobalRef) -> anyhow::Result<World> {
-        let world_obj = mapping()
-            .get_field(
-                MinecraftClassType::Minecraft,
-                minecraft.as_obj(),
-                "level",
-                FieldType::Object(MinecraftClassType::Level),
-            )?
-            .l()?;
-
-        Ok(World {
-            jni_ref: mapping().new_global_ref(world_obj)?,
-        })
+    /// Wraps an existing `Level` JVM object.
+    pub fn new(jni_ref: GlobalRef) -> World {
+        World { jni_ref }
     }
 
     pub fn get_entities(&self) -> anyhow::Result<Vec<Entity>> {

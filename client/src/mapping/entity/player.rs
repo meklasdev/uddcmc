@@ -18,24 +18,12 @@ pub struct Abilities {
 }
 
 impl LocalPlayer {
-    pub fn new(minecraft: &GlobalRef) -> anyhow::Result<Self> {
-        let player_obj = mapping()
-            .get_field(
-                MinecraftClassType::Minecraft,
-                minecraft.as_obj(),
-                "player",
-                FieldType::Object(MinecraftClassType::LocalPlayer),
-            )?
-            .l()?;
-
-        let player_ref = mapping().new_global_ref(player_obj)?;
-        let abilities = Abilities::new(player_ref.clone())?;
-        let entity = Entity::new(player_ref.clone());
-
+    /// Wraps an existing `LocalPlayer` JVM object.
+    pub fn new(player_ref: GlobalRef) -> anyhow::Result<Self> {
         Ok(Self {
+            abilities: Abilities::new(player_ref.clone())?,
+            entity: Entity::new(player_ref.clone()),
             jni_ref: player_ref,
-            abilities,
-            entity,
         })
     }
 }

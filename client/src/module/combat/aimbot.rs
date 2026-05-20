@@ -47,8 +47,9 @@ impl Module for AimbotModule {
 
     fn on_tick(&self) -> anyhow::Result<()> {
         let minecraft = minecraft();
-        let player = &minecraft.get_player()?;
-        let world = &minecraft.world;
+        let (Some(player), Some(world)) = (minecraft.player()?, minecraft.world()?) else {
+            return Ok(()); // not in a world — nothing to do
+        };
 
         let entities = world.get_entities()?;
         let range = self.get_range() as f64;

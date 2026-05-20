@@ -511,9 +511,9 @@ fn read_fov(mapping: &Mapping) -> f64 {
 /// while flying and ≈×1.15 while sprinting — the constants from
 /// `Player.getFieldOfViewModifier`.
 fn fov_modifier(mapping: &Mapping) -> f64 {
-    let player = match minecraft().get_player() {
-        Ok(player) => player,
-        Err(_) => return 1.0,
+    let player = match minecraft().player() {
+        Ok(Some(player)) => player,
+        _ => return 1.0,
     };
 
     let mut modifier = 1.0;
@@ -642,7 +642,9 @@ fn gather_entities(
 
     env.with_local_frame(32, |env| -> anyhow::Result<()> {
         let (local_id, player_pos) = {
-            let player = mc.get_player()?;
+            let Some(player) = mc.player()? else {
+                return Ok(());
+            };
             let id = mapping
                 .call_method(Cls::Entity, player.entity.jni_ref.as_obj(), "getId", &[])?
                 .i()?;
@@ -866,7 +868,10 @@ fn gather_chests() -> anyhow::Result<Vec<ChestTarget>> {
             return Ok(());
         }
 
-        let player_pos = mc.get_player()?.entity.get_position()?;
+        let Some(player) = mc.player()? else {
+            return Ok(());
+        };
+        let player_pos = player.entity.get_position()?;
         let pcx = (player_pos.0 / 16.0).floor() as i32;
         let pcz = (player_pos.2 / 16.0).floor() as i32;
 

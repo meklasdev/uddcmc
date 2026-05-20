@@ -98,11 +98,9 @@ unsafe fn on_frame() {
 
 /// Renders the egui overlay for the current frame.
 unsafe fn render_overlay() {
-    if state::minecraft().get_player().is_err() {
-        return;
-    }
-
-    // Install the input hooks lazily — they need the live GLFW window.
+    // Install the input hooks lazily — they need the live GLFW window. The
+    // overlay renders whether or not a world is loaded, so the GUI works
+    // even when the client is injected from the main menu.
     crate::graphic::input::init();
 
     crate::graphic::ui_engine::render_egui_ui();
@@ -116,12 +114,12 @@ fn check_tick() {
         return;
     }
 
-    let tick_count = match state::minecraft().get_player() {
-        Ok(player) => match player.entity.get_tick_count() {
+    let tick_count = match state::minecraft().player() {
+        Ok(Some(player)) => match player.entity.get_tick_count() {
             Ok(count) => count,
             Err(_) => return,
         },
-        Err(_) => return,
+        Ok(None) | Err(_) => return,
     };
 
     if tick_count > LAST_TICK.load(Ordering::Relaxed) {

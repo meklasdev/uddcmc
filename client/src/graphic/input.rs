@@ -238,7 +238,7 @@ fn toggle_gui() {
 /// Toggles any module whose keybind matches `key`, when in-world.
 fn handle_module_keybind(key: i32) {
     let minecraft = minecraft();
-    if !minecraft.current_screen_is_null() || minecraft.get_player().is_err() {
+    if !minecraft.current_screen_is_null() || !minecraft.in_world() {
         return;
     }
 
