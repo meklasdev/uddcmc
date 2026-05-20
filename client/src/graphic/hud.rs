@@ -87,17 +87,16 @@ fn draw_arraylist(ctx: &Context, painter: &Painter) {
     let font = FontId::proportional(14.0);
 
     // One lock per module: snapshot just the name and enabled flag.
-    let snapshot: Vec<(String, bool)> = match crate::state::client().modules.read() {
-        Ok(guard) => guard
-            .values()
-            .map(|m| {
-                let data = m.lock().unwrap();
-                let d = data.get_module_data();
-                (d.name.clone(), d.enabled)
-            })
-            .collect(),
-        Err(_) => return,
-    };
+    let snapshot: Vec<(String, bool)> = crate::state::client()
+        .modules
+        .handles()
+        .iter()
+        .filter_map(|m| {
+            let module = m.lock().ok()?;
+            let data = module.get_module_data();
+            Some((data.name.clone(), data.enabled))
+        })
+        .collect();
 
     // Resolve a smooth presence factor for every module. Disabled modules
     // keep a slot while their factor decays toward zero.

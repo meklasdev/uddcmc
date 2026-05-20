@@ -10,16 +10,14 @@
 //! programmer error, not a runtime condition, so it panics with a clear
 //! message instead of returning an `Option` every caller would unwrap.
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::OnceLock;
 
 use jni::JNIEnv;
-use log::error;
 use thiserror::Error;
 
 use crate::mapping::client::minecraft::Minecraft;
 use crate::mapping::Mapping;
-use crate::module::{Module, ModuleType};
+use crate::module::registry::ModuleRegistry;
 
 /// The JNI mapping bridge. Built first; the game wrappers depend on it.
 static MAPPING: OnceLock<Mapping> = OnceLock::new();
@@ -72,14 +70,11 @@ pub fn env() -> anyhow::Result<JNIEnv<'static>> {
     mapping().get_env()
 }
 
-/// Registered modules, keyed by name.
-type ModuleMap = RwLock<HashMap<String, Arc<Mutex<ModuleType>>>>;
-
 /// The running game and module state.
 pub struct Client {
     minecraft: Minecraft,
-    /// Registered modules, keyed by name.
-    pub modules: ModuleMap,
+    /// Every registered module.
+    pub modules: ModuleRegistry,
 }
 
 impl Client {
@@ -87,42 +82,7 @@ impl Client {
     fn new() -> Result<Client, ClientError> {
         Ok(Client {
             minecraft: Minecraft::new()?,
-            modules: RwLock::new(HashMap::new()),
+            modules: ModuleRegistry::new(),
         })
-    }
-
-    /// Registers a module under its name.
-    pub fn register_module<M>(&self, module: M)
-    where
-        M: Module + Send + Sync + 'static,
-    {
-        let module: ModuleType = Box::new(module);
-        let name = module.get_module_data().name.clone();
-        if let Ok(mut modules) = self.modules.write() {
-            modules.insert(name, Arc::new(Mutex::new(module)));
-        }
-    }
-
-    /// Ticks every enabled module once. A module whose tick fails is stopped
-    /// rather than aborting the whole pass.
-    pub fn tick(&self) {
-        let Ok(modules) = self.modules.read() else {
-            return;
-        };
-        for module in modules.values() {
-            let Ok(module) = module.lock() else {
-                continue;
-            };
-            if !module.get_module_data().enabled {
-                continue;
-            }
-            if let Err(e) = module.on_tick() {
-                let name = &module.get_module_data().name;
-                error!("module '{name}' tick failed, stopping it: {e}");
-                if let Err(e) = module.on_stop() {
-                    error!("module '{name}' also failed to stop: {e}");
-                }
-            }
-        }
     }
 }

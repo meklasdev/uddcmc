@@ -2,6 +2,7 @@ use std::fmt::Debug;
 
 pub mod combat;
 pub mod movement;
+pub mod registry;
 pub mod render;
 
 pub type ModuleType = Box<dyn Module + Send + Sync>;

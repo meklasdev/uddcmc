@@ -214,22 +214,20 @@ pub unsafe fn render_egui_ui() {
 }
 
 pub fn call_panic() {
-    let client = crate::state::client();
-    client.modules.read().unwrap().values().for_each(|module| {
-        let mut module = module.lock().unwrap();
+    for handle in crate::state::client().modules.handles() {
+        let Ok(mut module) = handle.lock() else {
+            continue;
+        };
         if module.get_module_data().enabled {
             module.get_module_data_mut().set_enabled(false);
-            match module.on_stop() {
-                Ok(_) => {}
-                Err(e) => {
-                    log::error!(
-                        "Failed to stop module {} on panic: {}",
-                        module.get_module_data().name,
-                        e
-                    );
-                }
+            if let Err(e) = module.on_stop() {
+                log::error!(
+                    "Failed to stop module {} on panic: {}",
+                    module.get_module_data().name,
+                    e
+                );
             }
         }
-    });
+    }
     cleanup_client();
 }

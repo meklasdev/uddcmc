@@ -242,13 +242,10 @@ fn handle_module_keybind(key: i32) {
         return;
     }
 
-    let client = client();
-    let Ok(modules) = client.modules.read() else {
-        return;
-    };
-
-    for module in modules.values() {
-        let mut module = module.lock().unwrap();
+    for handle in client().modules.handles() {
+        let Ok(mut module) = handle.lock() else {
+            continue;
+        };
         if module.get_module_data().key_bind as i32 != key {
             continue;
         }

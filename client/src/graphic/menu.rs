@@ -41,10 +41,7 @@ type ModuleMap = HashMap<String, ModuleArc>;
 pub fn draw(ctx: &Context, progress: f32) {
     draw_backdrop(ctx, progress);
 
-    let registry = match crate::state::client().modules.read() {
-        Ok(guard) => guard,
-        Err(_) => return,
-    };
+    let registry = crate::state::client().modules.by_name();
 
     // Single lock per module: collect the data layout needs, nothing more.
     let mut entries: Vec<(String, ModuleCategory)> = registry

@@ -292,12 +292,9 @@ fn read_config() -> EspConfig {
         },
     };
 
-    let registry = match client().modules.read() {
-        Ok(guard) => guard,
-        Err(_) => return cfg,
-    };
+    let modules = &client().modules;
 
-    if let Some(arc) = registry.get("Player ESP") {
+    if let Some(arc) = modules.get("Player ESP") {
         if let Ok(module) = arc.lock() {
             let data = module.get_module_data();
             cfg.player = EntityCfg {
@@ -310,7 +307,7 @@ fn read_config() -> EspConfig {
             };
         }
     }
-    if let Some(arc) = registry.get("Mob ESP") {
+    if let Some(arc) = modules.get("Mob ESP") {
         if let Ok(module) = arc.lock() {
             let data = module.get_module_data();
             cfg.mob = EntityCfg {
@@ -323,7 +320,7 @@ fn read_config() -> EspConfig {
             };
         }
     }
-    if let Some(arc) = registry.get("Chest ESP") {
+    if let Some(arc) = modules.get("Chest ESP") {
         if let Ok(module) = arc.lock() {
             let data = module.get_module_data();
             cfg.chest = ChestCfg {

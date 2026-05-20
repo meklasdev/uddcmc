@@ -124,7 +124,7 @@ fn check_tick() {
 
     if tick_count > LAST_TICK.load(Ordering::Relaxed) {
         LAST_TICK.store(tick_count, Ordering::Relaxed);
-        state::client().tick();
+        state::client().modules.tick();
     }
 }
 

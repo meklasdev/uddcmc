@@ -86,12 +86,12 @@ pub extern "C" fn cleanup_client() {
 
 /// Registers the built-in modules with the client.
 fn register_modules() {
-    let client = client();
-    client.register_module(FlyModule::new());
-    client.register_module(KillAuraModule::new());
-    client.register_module(MobAuraModule::new());
-    client.register_module(AimbotModule::new());
-    client.register_module(PlayerEspModule::new());
-    client.register_module(MobEspModule::new());
-    client.register_module(ChestEspModule::new());
+    let modules = &client().modules;
+    modules.register(FlyModule::new());
+    modules.register(KillAuraModule::new());
+    modules.register(MobAuraModule::new());
+    modules.register(AimbotModule::new());
+    modules.register(PlayerEspModule::new());
+    modules.register(MobEspModule::new());
+    modules.register(ChestEspModule::new());
 }
