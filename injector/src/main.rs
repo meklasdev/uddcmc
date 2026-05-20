@@ -1,156 +1,137 @@
+mod app;
+mod inject;
 mod platform;
 mod tui;
 
-use crate::platform::ProcessInfo;
-use eframe::{CreationContext, Frame};
+use eframe::Frame;
 use egui::Context;
-use log::LevelFilter;
-use simplelog::{Config, WriteLogger};
-use std::fs::File;
+use log::{error, LevelFilter};
+
+use crate::app::InjectorApp;
 
 fn main() {
-    if !is_elevated() {
-        #[cfg(target_family = "unix")]
-        eprintln!("❌ Please run this program with sudo: `sudo ./injector`");
-
-        #[cfg(target_family = "windows")]
-        eprintln!(
-            "❌ Please run this program as Administrator (Right click → Run as administrator)"
-        );
-
-        return; // Exit the program if not elevated
+    if !platform::is_elevated() {
+        eprintln!("{}", elevation_hint());
+        return;
     }
 
-    // Initialize the logger with a default configuration
-    WriteLogger::init(
-        LevelFilter::Debug,
-        Config::default(),
-        File::create("app.log").unwrap(),
-    )
-    .unwrap();
+    if let Err(e) = protocol::init_file_logger("app.log", LevelFilter::Debug) {
+        eprintln!("continuing without file logging: {e}");
+    }
 
-    let args: Vec<String> = std::env::args().collect();
-    if args.contains(&"--tui".to_string()) {
+    if std::env::args().any(|arg| arg == "--tui") {
         tui::run_tui();
         return;
     }
 
+    if let Err(e) = run_gui() {
+        error!("GUI terminated with an error: {e}");
+        eprintln!("Error: {e}");
+    }
+}
+
+/// Launches the egui front-end.
+fn run_gui() -> Result<(), eframe::Error> {
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([450.0, 320.0])
-            .with_min_inner_size([300.0, 220.0]),
+            .with_inner_size([460.0, 340.0])
+            .with_min_inner_size([320.0, 240.0]),
         ..Default::default()
     };
-
     eframe::run_native(
         "DarkClient Injector",
         native_options,
-        Box::new(|creation_context| Ok(Box::new(InjectorGUI::new(creation_context)))),
+        Box::new(|_cc| Ok(Box::new(InjectorGui::default()))),
     )
-    .expect("Failed to run the GUI");
 }
 
-pub struct InjectorGUI {
-    status: String,
-    found_processes: Vec<ProcessInfo>,
-    selected_pid: Option<u32>,
-}
-
-impl InjectorGUI {
-    pub fn new(_creation_context: &CreationContext<'_>) -> Self {
-        Self {
-            status: "Ready:".to_owned(),
-            found_processes: Vec::new(),
-            selected_pid: None,
-        }
+/// Platform-specific hint shown when the injector lacks the privileges it
+/// needs to attach to another process.
+fn elevation_hint() -> &'static str {
+    #[cfg(windows)]
+    {
+        "This program must run as Administrator (right click → Run as administrator)."
     }
-
-    fn scan(&mut self) {
-        self.found_processes = platform::find_minecraft_processes();
-        if self.found_processes.is_empty() {
-            self.status = String::from("No Minecraft processes found.");
-            self.selected_pid = None;
-        } else {
-            self.status = format!("Found {} processes.", self.found_processes.len());
-            if self.selected_pid.is_none() {
-                self.selected_pid = Some(self.found_processes[0].pid);
-            }
-        }
+    #[cfg(not(windows))]
+    {
+        "This program must run with root privileges: sudo ./injector"
     }
 }
 
-impl eframe::App for InjectorGUI {
+/// Thin egui wrapper around [`InjectorApp`]. The polished layout lands in a
+/// dedicated `gui` module in the next refactor phase.
+#[derive(Default)]
+struct InjectorGui {
+    app: InjectorApp,
+}
+
+impl eframe::App for InjectorGui {
     fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
+        self.app.poll();
+
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("DarkClient Injector");
+            ui.add_space(8.0);
 
             ui.horizontal(|ui| {
-                if ui.button("🔄 Scan").clicked() {
-                    self.scan();
+                let scan = egui::Button::new("🔄 Scan");
+                if ui.add_enabled(!self.app.is_busy(), scan).clicked() {
+                    self.app.scan();
                 }
-                if !self.found_processes.is_empty() {
-                    ui.label(format!("Found: {}", self.found_processes.len()));
-                }
+                ui.label(format!("{} process(es)", self.app.processes().len()));
             });
 
-            ui.add_space(10.0);
+            ui.add_space(8.0);
+            self.process_picker(ui);
+            ui.add_space(16.0);
 
-            if !self.found_processes.is_empty() {
-                egui::ComboBox::from_id_salt("pid_select")
-                    .width(300.0)
-                    .selected_text(match self.selected_pid {
-                        Some(pid) => {
-                            let p = self.found_processes.iter().find(|p| p.pid == pid);
-                            match p {
-                                Some(proc) => format!("PID {}: {}", proc.pid, proc.info),
-                                None => "Select process".to_string(),
-                            }
-                        }
-                        None => "Select process".to_string(),
-                    })
-                    .show_ui(ui, |ui| {
-                        for proc in &self.found_processes {
-                            ui.selectable_value(
-                                &mut self.selected_pid,
-                                Some(proc.pid),
-                                format!("PID {}: {}", proc.pid, proc.info),
-                            );
-                        }
-                    });
-            } else {
-                ui.label("No processes found.");
-            }
-
-            ui.add_space(20.0);
-
-            let btn = ui.add_enabled(self.selected_pid.is_some(), egui::Button::new("💉 INJECT"));
-            if btn.clicked() {
-                if let Some(pid) = self.selected_pid {
-                    self.status = format!("Injecting into {}...", pid);
-                    ctx.request_repaint();
-
-                    match platform::inject(pid) {
-                        Ok(_) => self.status = "✅ Injection Successful!".to_owned(),
-                        Err(e) => self.status = format!("❌ Error: {}", e),
-                    }
-                }
+            let can_inject = self.app.selected_pid().is_some() && !self.app.is_busy();
+            if ui
+                .add_enabled(can_inject, egui::Button::new("💉 Inject"))
+                .clicked()
+            {
+                self.app.start_injection();
             }
 
             ui.separator();
-            ui.label(&self.status);
+            ui.label(self.app.status().message());
         });
+
+        // Keep repainting while a worker thread is running so its result is
+        // picked up promptly.
+        if self.app.is_busy() {
+            ctx.request_repaint();
+        }
     }
 }
 
-#[cfg(target_family = "unix")]
-fn is_elevated() -> bool {
-    extern "C" {
-        fn geteuid() -> u32;
-    }
-    unsafe { geteuid() == 0 }
-}
+impl InjectorGui {
+    /// Renders the process selection combo box.
+    fn process_picker(&mut self, ui: &mut egui::Ui) {
+        let selected = self.app.selected_pid();
+        let label = selected
+            .and_then(|pid| self.app.processes().iter().find(|p| p.pid == pid))
+            .map(|p| format!("PID {} — {}", p.pid, p.info))
+            .unwrap_or_else(|| "Select a process".to_string());
 
-#[cfg(target_family = "windows")]
-fn is_elevated() -> bool {
-    is_elevated::is_elevated()
+        let mut picked = selected;
+        egui::ComboBox::from_id_salt("process")
+            .width(360.0)
+            .selected_text(label)
+            .show_ui(ui, |ui| {
+                for proc in self.app.processes() {
+                    ui.selectable_value(
+                        &mut picked,
+                        Some(proc.pid),
+                        format!("PID {} — {}", proc.pid, proc.info),
+                    );
+                }
+            });
+
+        if let Some(pid) = picked {
+            if Some(pid) != selected {
+                self.app.select(pid);
+            }
+        }
+    }
 }

@@ -86,31 +86,24 @@ pub fn run_tui() {
                     AppState::Selecting => match key.code {
                         KeyCode::Char('b') => state = AppState::Menu,
                         KeyCode::Char('r') => processes = platform::find_minecraft_processes(),
-                        KeyCode::Up => {
-                            if selected_index > 0 {
-                                selected_index -= 1;
-                            }
+                        KeyCode::Up if selected_index > 0 => {
+                            selected_index -= 1;
                         }
-                        KeyCode::Down => {
-                            if !processes.is_empty() && selected_index < processes.len() - 1 {
-                                selected_index += 1;
-                            }
+                        KeyCode::Down
+                            if !processes.is_empty() && selected_index < processes.len() - 1 =>
+                        {
+                            selected_index += 1;
                         }
-                        KeyCode::Enter => {
-                            if !processes.is_empty() {
-                                let pid = processes[selected_index].pid;
+                        KeyCode::Enter if !processes.is_empty() => {
+                            let pid = processes[selected_index].pid;
 
-                                // Renderizza stato injection
-                                execute!(stdout, Clear(ClearType::All), cursor::MoveTo(0, 0))
-                                    .unwrap();
-                                println!("Injecting into PID {}...", pid);
+                            // Render the injection status.
+                            execute!(stdout, Clear(ClearType::All), cursor::MoveTo(0, 0)).unwrap();
+                            println!("Injecting into PID {}...", pid);
 
-                                match platform::inject(pid) {
-                                    Ok(_) => {
-                                        state = AppState::Done(format!("Injected into {}", pid))
-                                    }
-                                    Err(e) => state = AppState::Error(e.to_string()),
-                                }
+                            match crate::inject::inject(pid) {
+                                Ok(_) => state = AppState::Done(format!("Injected into {}", pid)),
+                                Err(e) => state = AppState::Error(e.to_string()),
                             }
                         }
                         _ => {}

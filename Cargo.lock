@@ -1596,11 +1596,13 @@ dependencies = [
  "eframe",
  "egui",
  "is_elevated",
+ "libc",
  "log",
  "proc-maps",
+ "protocol",
  "ptrace-inject",
- "simplelog",
  "sysinfo",
+ "thiserror 2.0.17",
 ]
 
 [[package]]
