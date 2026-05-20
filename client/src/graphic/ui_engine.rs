@@ -35,11 +35,15 @@ pub fn gather_egui_inputs(
     screen_height: f32,
     scale_factor: f32,
 ) -> egui::RawInput {
-    let mut raw_input = egui::RawInput::default();
-    raw_input.time = Some(elapsed_seconds());
+    let mut raw_input = egui::RawInput {
+        time: Some(elapsed_seconds()),
+        ..Default::default()
+    };
 
-    let mut viewport_info = egui::ViewportInfo::default();
-    viewport_info.native_pixels_per_point = Some(scale_factor);
+    let viewport_info = egui::ViewportInfo {
+        native_pixels_per_point: Some(scale_factor),
+        ..Default::default()
+    };
 
     raw_input
         .viewports

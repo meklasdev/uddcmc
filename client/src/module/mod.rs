@@ -10,24 +10,24 @@ pub type ModuleType = Box<dyn Module + Send + Sync>;
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ModuleCategory {
-    COMBAT,
-    MOVEMENT,
-    RENDER,
-    PLAYER,
-    WORLD,
-    MISC,
+    Combat,
+    Movement,
+    Render,
+    Player,
+    World,
+    Misc,
 }
 
 impl ModuleCategory {
     #[allow(dead_code)]
     pub fn display_name(&self) -> &str {
         match self {
-            ModuleCategory::COMBAT => "Combat",
-            ModuleCategory::MOVEMENT => "Movement",
-            ModuleCategory::RENDER => "Render",
-            ModuleCategory::PLAYER => "Player",
-            ModuleCategory::WORLD => "World",
-            ModuleCategory::MISC => "Misc",
+            ModuleCategory::Combat => "Combat",
+            ModuleCategory::Movement => "Movement",
+            ModuleCategory::Render => "Render",
+            ModuleCategory::Player => "Player",
+            ModuleCategory::World => "World",
+            ModuleCategory::Misc => "Misc",
         }
     }
 }
@@ -355,9 +355,11 @@ impl KeyboardKey {
             _ => KeyboardKey::KeyNone,
         }
     }
+}
 
-    pub fn to_string(&self) -> String {
-        match self {
+impl std::fmt::Display for KeyboardKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
             KeyboardKey::KeyNone => str::to_string("None"),
             KeyboardKey::KeyEscape => str::to_string("ESC"),
             KeyboardKey::Key1 => str::to_string("1"),
@@ -465,6 +467,7 @@ impl KeyboardKey {
             KeyboardKey::KeyNext => str::to_string("Next"),
             KeyboardKey::KeyInsert => str::to_string("Insert"),
             KeyboardKey::KeyDelete => str::to_string("Delete"),
-        }
+        };
+        f.write_str(&name)
     }
 }

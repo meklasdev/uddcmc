@@ -15,7 +15,7 @@ impl AimbotModule {
             module: ModuleData {
                 name: "Aimbot".to_string(),
                 description: "Automatically aims at entities".to_string(),
-                category: ModuleCategory::COMBAT,
+                category: ModuleCategory::Combat,
                 key_bind: KeyboardKey::KeyC,
                 enabled: false,
                 settings: vec![ModuleSetting::Slider {

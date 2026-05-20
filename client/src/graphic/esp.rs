@@ -351,10 +351,7 @@ pub fn draw(ctx: &Context) {
     }
 
     let now = Instant::now();
-    if state
-        .last_gather
-        .map_or(true, |t| now - t >= GATHER_INTERVAL)
-    {
+    if state.last_gather.is_none_or(|t| now - t >= GATHER_INTERVAL) {
         gather(&mut state, &cfg, now);
     }
 
@@ -607,7 +604,7 @@ fn gather(state: &mut EspState, cfg: &EspConfig, now: Instant) {
     if cfg.chest.enabled {
         let due = state
             .last_chest_scan
-            .map_or(true, |t| now - t >= CHEST_SCAN_INTERVAL);
+            .is_none_or(|t| now - t >= CHEST_SCAN_INTERVAL);
         if due {
             state.last_chest_scan = Some(now);
             match gather_chests() {

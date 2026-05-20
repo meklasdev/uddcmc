@@ -347,7 +347,7 @@ impl Mapping {
             .map(|entry| entry.key().clone())
     }
 
-    fn translate_type_descriptor<'a>(&self, descriptor: &mut &'a str) -> String {
+    fn translate_type_descriptor(&self, descriptor: &mut &str) -> String {
         let mut array_brackets = String::new();
         while descriptor.starts_with('[') {
             array_brackets.push_str("[]");

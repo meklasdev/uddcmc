@@ -58,11 +58,11 @@ pub fn draw(ctx: &Context, progress: f32) {
 
     // Auto-layout: place non-empty categories left-to-right, wrapping rows.
     let categories = [
-        ModuleCategory::COMBAT,
-        ModuleCategory::MOVEMENT,
-        ModuleCategory::RENDER,
-        ModuleCategory::PLAYER,
-        ModuleCategory::WORLD,
+        ModuleCategory::Combat,
+        ModuleCategory::Movement,
+        ModuleCategory::Render,
+        ModuleCategory::Player,
+        ModuleCategory::World,
     ];
     let screen_w = ctx.screen_rect().width();
     let mut slot = Pos2::new(ORIGIN_X, ORIGIN_Y);
@@ -479,7 +479,7 @@ fn capture_keybind(data: &mut ModuleData, arc: &ModuleArc, registry: &ModuleMap)
             Notification::send(
                 NotificationType::Warning,
                 "Keybind in use",
-                &format!("'{}' is bound to {}", owner_name, key.to_string()),
+                &format!("'{owner_name}' is bound to {key}"),
             );
             return true;
         }

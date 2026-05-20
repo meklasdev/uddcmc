@@ -19,7 +19,7 @@ impl BaseAura {
             module: ModuleData {
                 name,
                 description,
-                category: ModuleCategory::COMBAT,
+                category: ModuleCategory::Combat,
                 key_bind,
                 enabled: false,
                 settings: vec![ModuleSetting::Slider {

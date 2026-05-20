@@ -254,7 +254,7 @@ impl MinecraftClass {
                 // Object types
                 'L' => {
                     let mut object_type = String::from("L");
-                    while let Some(ch) = chars.next() {
+                    for ch in chars.by_ref() {
                         object_type.push(ch);
                         if ch == ';' {
                             break;
@@ -271,7 +271,7 @@ impl MinecraftClass {
                                 array_type.push(chars.next().unwrap());
                             }
                             'L' => {
-                                while let Some(ch) = chars.next() {
+                                for ch in chars.by_ref() {
                                     array_type.push(ch);
                                     if ch == ';' {
                                         break;

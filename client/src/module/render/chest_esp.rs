@@ -16,7 +16,7 @@ impl ChestEspModule {
             module: ModuleData {
                 name: "Chest ESP".to_string(),
                 description: "Draws a 3D box around containers".to_string(),
-                category: ModuleCategory::RENDER,
+                category: ModuleCategory::Render,
                 key_bind: KeyboardKey::KeyNone,
                 enabled: false,
                 settings: vec![

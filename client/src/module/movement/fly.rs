@@ -12,7 +12,7 @@ impl FlyModule {
             module: ModuleData {
                 name: "Fly".to_string(),
                 description: "Enables flying".to_string(),
-                category: ModuleCategory::MOVEMENT,
+                category: ModuleCategory::Movement,
                 key_bind: KeyboardKey::KeyF,
                 enabled: false,
                 settings: vec![ModuleSetting::Slider {
