@@ -115,7 +115,13 @@ pub fn draw(ctx: &Context) {
 
         // Smooth vertical stacking so cards glide up as others expire.
         let target_y = MARGIN + index as f32 * (HEIGHT + GAP);
-        let y = anim::ease_to(ctx, Id::new("notif_y").with(n.id), target_y, 0.2, Easing::Out);
+        let y = anim::ease_to(
+            ctx,
+            Id::new("notif_y").with(n.id),
+            target_y,
+            0.2,
+            Easing::Out,
+        );
 
         let x = (screen_w - MARGIN - WIDTH) + (WIDTH + MARGIN) * offset;
         let rect = Rect::from_min_size(Pos2::new(x, y), Vec2::new(WIDTH, HEIGHT));
@@ -128,7 +134,11 @@ fn draw_card(painter: &Painter, rect: Rect, n: &Notification, remaining: f32) {
     let accent = n.notif_type.color();
     let radius = Rounding::same(theme::RADIUS_INNER);
 
-    painter.rect_filled(rect, radius, Color32::from_rgba_unmultiplied(16, 17, 21, 240));
+    painter.rect_filled(
+        rect,
+        radius,
+        Color32::from_rgba_unmultiplied(16, 17, 21, 240),
+    );
     painter.rect_stroke(rect, radius, Stroke::new(1.0_f32, theme::BORDER));
 
     // Accent rail down the left edge.

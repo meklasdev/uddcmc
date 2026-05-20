@@ -1,5 +1,6 @@
 use crate::mapping::java::iterator::Iterator;
-use crate::mapping::{GameContext, MinecraftClassType};
+use crate::mapping::MinecraftClassType;
+use crate::state::mapping;
 use jni::objects::GlobalRef;
 use std::ops::Deref;
 
@@ -8,13 +9,9 @@ pub struct Iterable {
     pub jni_ref: GlobalRef,
 }
 
-impl GameContext for Iterable {}
-
 impl Iterable {
     pub fn iterator(&self) -> anyhow::Result<Iterator> {
-        let mapping = self.mapping();
-
-        let iterator_obj = mapping
+        let iterator_obj = mapping()
             .call_method(
                 MinecraftClassType::Iterable,
                 self.jni_ref.as_obj(),
@@ -24,7 +21,7 @@ impl Iterable {
             .l()?;
 
         Ok(Iterator {
-            jni_ref: mapping.new_global_ref(iterator_obj)?,
+            jni_ref: mapping().new_global_ref(iterator_obj)?,
         })
     }
 }

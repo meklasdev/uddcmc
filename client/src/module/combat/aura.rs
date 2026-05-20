@@ -1,6 +1,6 @@
-use crate::mapping::client::minecraft::Minecraft;
-use crate::mapping::{GameContext, MinecraftClassType};
+use crate::mapping::MinecraftClassType;
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleSetting};
+use crate::state::{mapping, minecraft};
 
 #[derive(Debug)]
 pub struct BaseAura {
@@ -51,11 +51,11 @@ impl Module for BaseAura {
     }
 
     fn on_tick(&self) -> anyhow::Result<()> {
-        let minecraft = Minecraft::instance();
+        let minecraft = minecraft();
         let player = &minecraft.get_player()?;
         let world = &minecraft.world;
         let game_mode = &minecraft.game_mode;
-        let mapping = minecraft.mapping();
+        let mapping = mapping();
 
         let entities = world.get_entities()?;
         let range = self.get_range() as f64;

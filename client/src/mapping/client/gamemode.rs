@@ -1,6 +1,7 @@
 use crate::mapping::entity::player::LocalPlayer;
 use crate::mapping::entity::Entity;
-use crate::mapping::{GameContext, MinecraftClassType};
+use crate::mapping::MinecraftClassType;
+use crate::state::mapping;
 use jni::objects::{GlobalRef, JValue};
 use std::ops::Deref;
 
@@ -9,17 +10,13 @@ pub struct MultiPlayerGameMode {
     pub jni_ref: GlobalRef,
 }
 
-impl GameContext for MultiPlayerGameMode {}
-
 impl MultiPlayerGameMode {
     pub fn new(jni_ref: GlobalRef) -> Self {
         Self { jni_ref }
     }
 
     pub fn attack(&self, player: &LocalPlayer, target: &Entity) -> anyhow::Result<()> {
-        let mapping = self.mapping();
-
-        mapping.call_method(
+        mapping().call_method(
             MinecraftClassType::MultiPlayerGameMode,
             self.jni_ref.as_obj(),
             "attack",

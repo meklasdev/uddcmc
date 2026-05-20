@@ -673,6 +673,7 @@ dependencies = [
  "serde",
  "serde_json",
  "simplelog",
+ "thiserror 2.0.17",
 ]
 
 [[package]]

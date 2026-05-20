@@ -137,11 +137,7 @@ fn probe_loader(
 
 /// Calls `loader.loadClass(binary_name)`, returning the class on success and
 /// `None` (with the pending exception cleared) when the loader cannot find it.
-fn load_class<'a>(
-    env: &mut JNIEnv<'a>,
-    loader: &JObject,
-    binary_name: &str,
-) -> Option<JClass<'a>> {
+fn load_class<'a>(env: &mut JNIEnv<'a>, loader: &JObject, binary_name: &str) -> Option<JClass<'a>> {
     let name: JObject = env.new_string(binary_name).ok()?.into();
     let result = env.call_method(
         loader,

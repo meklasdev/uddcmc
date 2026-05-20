@@ -1,13 +1,11 @@
-use crate::client::DarkClient;
 use crate::mapping::class::{Method, MethodHandle, MinecraftClass};
 pub use crate::mapping::class_type::MinecraftClassType;
-use crate::mapping::client::minecraft::Minecraft;
 use crate::mapping::minecraft_version::MinecraftVersion;
 use jni::objects::{GlobalRef, JClass, JMethodID, JObject, JString, JValue, JValueOwned};
 use jni::signature::{Primitive, ReturnType};
-use jni::sys::jvalue;
-use jni::JNIEnv;
-use log::{error, info};
+use jni::sys::{jsize, jvalue, JNI_GetCreatedJavaVMs, JNI_OK};
+use jni::{JNIEnv, JavaVM};
+use log::info;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -21,16 +19,6 @@ mod loader;
 mod method;
 mod minecraft_version;
 mod reflect;
-
-pub trait GameContext {
-    fn minecraft(&self) -> &'static Minecraft {
-        Minecraft::instance()
-    }
-
-    fn mapping(&self) -> &'static Mapping {
-        self.minecraft().get_mapping()
-    }
-}
 
 /// On-disk JSON shape. Only obfuscated builds ship one of these.
 #[derive(Debug, Deserialize)]
@@ -53,6 +41,8 @@ enum Mode {
 /// uses, transparently for both obfuscated and unobfuscated Minecraft.
 #[derive(Debug)]
 pub struct Mapping {
+    /// Handle to the host JVM; the source of every [`JNIEnv`] this bridge uses.
+    jvm: JavaVM,
     mode: Mode,
     version: MinecraftVersion,
     /// In obfuscated mode every class is present up-front; in reflected mode
@@ -72,7 +62,7 @@ pub struct Mapping {
 }
 
 #[allow(dead_code)]
-pub enum FieldType<'local> {
+pub enum FieldType {
     Boolean,
     Byte,
     Char,
@@ -82,10 +72,10 @@ pub enum FieldType<'local> {
     Float,
     Double,
     String,
-    Object(MinecraftClassType, &'local Mapping),
+    Object(MinecraftClassType),
 }
 
-impl FieldType<'_> {
+impl FieldType {
     pub fn get_signature(&self) -> anyhow::Result<String> {
         Ok(match self {
             FieldType::Boolean => String::from("Z"),
@@ -97,8 +87,11 @@ impl FieldType<'_> {
             FieldType::Float => String::from("F"),
             FieldType::Double => String::from("D"),
             FieldType::String => String::from("Ljava/lang/String;"),
-            FieldType::Object(class_type, mapping) => {
-                format!("L{};", mapping.runtime_class_name(*class_type)?)
+            FieldType::Object(class_type) => {
+                format!(
+                    "L{};",
+                    crate::state::mapping().runtime_class_name(*class_type)?
+                )
             }
         })
     }
@@ -109,45 +102,56 @@ impl FieldType<'_> {
 /// In an unobfuscated build the real Mojmap class name resolves directly; in
 /// an obfuscated build that class only exists under its scrambled name, so the
 /// lookup fails (and the resulting pending exception is cleared).
-fn is_unobfuscated() -> bool {
-    match DarkClient::instance().get_env() {
-        Ok(mut env) => {
-            let found = env.find_class("net/minecraft/client/Minecraft").is_ok();
-            if !found {
-                let _ = env.exception_clear();
-            }
-            found
+fn probe_unobfuscated(env: &mut JNIEnv) -> bool {
+    let found = env.find_class("net/minecraft/client/Minecraft").is_ok();
+    if !found {
+        let _ = env.exception_clear();
+    }
+    found
+}
+
+/// Obtains a handle to the JVM running in this process.
+fn acquire_jvm() -> anyhow::Result<JavaVM> {
+    let mut raw: *mut jni::sys::JavaVM = std::ptr::null_mut();
+    let mut count: jsize = 0;
+
+    // SAFETY: standard JNI invocation-API call; both out-parameters are valid.
+    unsafe {
+        if JNI_GetCreatedJavaVMs(&mut raw, 1, &mut count) != JNI_OK || count == 0 {
+            return Err(anyhow::anyhow!("no JVM found in this process"));
         }
-        Err(_) => false,
+        Ok(JavaVM::from_raw(raw)?)
     }
 }
 
 #[allow(dead_code)]
 impl Mapping {
     pub fn new() -> anyhow::Result<Mapping> {
+        let jvm = acquire_jvm()?;
+        let mut env = jvm.attach_current_thread_as_daemon()?;
+
         // Discover the loader that runs the game before anything else: on
         // Fabric/Forge the game lives in an isolated class loader and a plain
         // `find_class` resolves a dead duplicate of `Minecraft` whose static
         // `instance` is null — the "Minecraft is null" failure (see `loader`).
-        let game_loader = DarkClient::instance()
-            .get_env()
-            .ok()
-            .and_then(|mut env| loader::discover_game_loader(&mut env));
+        let game_loader = loader::discover_game_loader(&mut env);
 
         // Reflected mode applies whenever the real Mojmap names exist at
         // runtime — proven either by a resolved game loader (vanilla or modded)
-        // or, as a fallback, by a direct `find_class`.
-        if game_loader.is_some() || is_unobfuscated() {
+        // or, as a fallback, by a direct `find_class`. After this the `env`
+        // borrow of `jvm` ends, so `jvm` can move into the returned `Mapping`.
+        let reflected = game_loader.is_some() || probe_unobfuscated(&mut env);
+
+        if reflected {
             match game_loader {
                 Some(_) => info!(
                     "Modded/unobfuscated Minecraft detected — routing class \
                      resolution through the game class loader"
                 ),
-                None => info!(
-                    "Unobfuscated Minecraft detected — using runtime reflection mapping"
-                ),
+                None => info!("Unobfuscated Minecraft detected — using runtime reflection mapping"),
             }
             return Ok(Mapping {
+                jvm,
                 mode: Mode::Reflected,
                 version: MinecraftVersion::LATEST,
                 classes: RwLock::new(HashMap::new()),
@@ -172,6 +176,7 @@ impl Mapping {
             .collect();
 
         Ok(Mapping {
+            jvm,
             mode: Mode::Obfuscated,
             version: file.version,
             classes: RwLock::new(classes),
@@ -180,12 +185,10 @@ impl Mapping {
         })
     }
 
-    fn get_client(&self) -> &DarkClient {
-        DarkClient::instance()
-    }
-
-    pub fn get_env(&'_ self) -> anyhow::Result<JNIEnv<'_>> {
-        Ok(self.get_client().get_env()?)
+    /// Attaches the current thread to the JVM and returns a JNI environment.
+    /// Called on the `'static` global mapping, the environment is `'static`.
+    pub fn get_env(&self) -> anyhow::Result<JNIEnv<'_>> {
+        Ok(self.jvm.attach_current_thread_as_daemon()?)
     }
 
     pub fn get_version(&self) -> MinecraftVersion {
@@ -255,11 +258,7 @@ impl Mapping {
 
     /// Looks a class up from scratch: through the captured Minecraft class
     /// loader if available, otherwise through `find_class`.
-    fn lookup_class<'a>(
-        &self,
-        env: &mut JNIEnv<'a>,
-        jni_name: &str,
-    ) -> anyhow::Result<JClass<'a>> {
+    fn lookup_class<'a>(&self, env: &mut JNIEnv<'a>, jni_name: &str) -> anyhow::Result<JClass<'a>> {
         if let Some(loader) = self.class_loader.read().unwrap().clone() {
             let binary_name = jni_name.replace('/', ".");
             let name: JObject = env.new_string(binary_name)?.into();
@@ -397,7 +396,11 @@ impl Mapping {
 
             let translated_return = self.translate_type_descriptor(&mut return_type_str);
 
-            format!("({}) -> {}", translated_params.join(", "), translated_return)
+            format!(
+                "({}) -> {}",
+                translated_params.join(", "),
+                translated_return
+            )
         } else {
             signature.to_string()
         }
@@ -608,15 +611,6 @@ impl Mapping {
         let class_name = self.runtime_class_name(class_type)?;
         let jclass = self.resolve_class(&mut env, &class_name)?;
         Ok(env.is_instance_of(instance, &jclass)?)
-    }
-}
-
-impl Default for Mapping {
-    fn default() -> Self {
-        Self::new().unwrap_or_else(|_| {
-            error!("Failed to load mappings");
-            panic!("Failed to load mappings");
-        })
     }
 }
 

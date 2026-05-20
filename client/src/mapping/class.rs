@@ -1,4 +1,4 @@
-use crate::client::DarkClient;
+use crate::state;
 use anyhow::anyhow;
 use jni::objects::{JClass, JObject, JString, JValue, JValueOwned};
 use jni::JNIEnv;
@@ -369,7 +369,7 @@ impl MinecraftClass {
         }
 
         // Get JNI environment to check actual object type
-        if let Ok(mut env) = DarkClient::instance().get_env() {
+        if let Ok(mut env) = state::env() {
             // Get the actual class of the object
             if let Ok(obj_class) = env.get_object_class(obj) {
                 // Check for exact class match first
@@ -411,7 +411,7 @@ impl MinecraftClass {
             return SignatureMatch::Compatible;
         }
 
-        if let Ok(mut env) = DarkClient::instance().get_env() {
+        if let Ok(mut env) = state::env() {
             // Check if the object is actually an array
             if let Ok(obj_class) = env.get_object_class(obj) {
                 if let Ok(class_name) = self.get_class_name_from_object(&mut env, &obj_class) {

@@ -4,9 +4,7 @@
 //! client ticks exactly once per frame. OpenGL entry-point resolution — the
 //! loader behind the `gl` and `glow` bindings — lives here too.
 
-use crate::client::DarkClient;
-use crate::mapping::client::minecraft::Minecraft;
-use crate::{gl, RUNNING};
+use crate::{gl, state, RUNNING};
 use ilhook::x64::{CallbackOption, HookFlags, HookPoint, HookType, Hooker, Registers};
 use log::info;
 use std::ffi::c_void;
@@ -100,7 +98,7 @@ unsafe fn on_frame() {
 
 /// Renders the egui overlay for the current frame.
 unsafe fn render_overlay() {
-    if Minecraft::instance().get_player().is_err() {
+    if state::minecraft().get_player().is_err() {
         return;
     }
 
@@ -113,15 +111,12 @@ unsafe fn render_overlay() {
 /// Detects a new game tick by watching the player's tick counter, and ticks
 /// every enabled module when one is observed.
 fn check_tick() {
-    let client = DarkClient::instance();
-    // Attach as a daemon so this render thread can make JNI calls.
-    if client.jvm.attach_current_thread_as_daemon().is_err() {
+    // Attach this render thread to the JVM so it can make JNI calls.
+    if state::env().is_err() {
         return;
     }
 
-    let minecraft = Minecraft::instance();
-
-    let tick_count = match minecraft.get_player() {
+    let tick_count = match state::minecraft().get_player() {
         Ok(player) => match player.entity.get_tick_count() {
             Ok(count) => count,
             Err(_) => return,
@@ -131,7 +126,7 @@ fn check_tick() {
 
     if tick_count > LAST_TICK.load(Ordering::Relaxed) {
         LAST_TICK.store(tick_count, Ordering::Relaxed);
-        client.tick();
+        state::client().tick();
     }
 }
 
@@ -238,7 +233,10 @@ pub fn install_hooks() -> anyhow::Result<()> {
             .map_err(|e| anyhow::anyhow!("wglSwapBuffers missing: {}", e))?;
 
         let target_addr = *swap_buffers as *const () as usize;
-        info!("Found wglSwapBuffers in {} at 0x{:x}", LIB_NAME, target_addr);
+        info!(
+            "Found wglSwapBuffers in {} at 0x{:x}",
+            LIB_NAME, target_addr
+        );
 
         let hook = hooker_for(target_addr)
             .hook()

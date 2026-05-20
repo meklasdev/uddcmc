@@ -1,5 +1,6 @@
 use crate::mapping::method::MethodName;
-use crate::mapping::{GameContext, Mapping, MinecraftClassType};
+use crate::mapping::MinecraftClassType;
+use crate::state::mapping;
 use jni::objects::GlobalRef;
 use jni::sys::jlong;
 use std::ops::Deref;
@@ -9,11 +10,9 @@ pub struct Window {
     pub jni_ref: GlobalRef,
 }
 
-impl GameContext for Window {}
-
 impl Window {
-    pub fn new(minecraft: &GlobalRef, mapping: &Mapping) -> anyhow::Result<Window> {
-        let window_obj = mapping
+    pub fn new(minecraft: &GlobalRef) -> anyhow::Result<Window> {
+        let window_obj = mapping()
             .call_method(
                 MinecraftClassType::Minecraft,
                 minecraft.as_obj(),
@@ -23,12 +22,12 @@ impl Window {
             .l()?;
 
         Ok(Window {
-            jni_ref: mapping.new_global_ref(window_obj)?,
+            jni_ref: mapping().new_global_ref(window_obj)?,
         })
     }
 
     pub fn get_window(&self) -> anyhow::Result<jlong> {
-        let mapping = self.mapping();
+        let mapping = mapping();
 
         Ok(mapping
             .call_method(

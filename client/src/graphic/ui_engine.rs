@@ -1,5 +1,4 @@
 use crate::cleanup_client;
-use crate::client::DarkClient;
 use crate::graphic::input::{GUI_OPEN, MOUSE_STATE};
 use egui::Context;
 use egui_glow::Painter;
@@ -215,7 +214,7 @@ pub unsafe fn render_egui_ui() {
 }
 
 pub fn call_panic() {
-    let client = DarkClient::instance();
+    let client = crate::state::client();
     client.modules.read().unwrap().values().for_each(|module| {
         let mut module = module.lock().unwrap();
         if module.get_module_data().enabled {

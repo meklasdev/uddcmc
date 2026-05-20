@@ -3,10 +3,11 @@
 //! Everything is drawn straight onto a background [`egui::Painter`] with
 //! absolute screen coordinates — no layout passes, no per-widget `Area`s.
 
-use crate::client::DarkClient;
 use crate::graphic::anim::{self, Easing};
 use crate::graphic::theme;
-use egui::{Align2, Color32, Context, FontId, Id, LayerId, Order, Painter, Rect, Rounding, Stroke, Vec2};
+use egui::{
+    Align2, Color32, Context, FontId, Id, LayerId, Order, Painter, Rect, Rounding, Stroke, Vec2,
+};
 
 /// Screen-edge padding shared by every HUD element.
 const MARGIN: f32 = 10.0;
@@ -37,19 +38,38 @@ fn draw_watermark(ctx: &Context, painter: &Painter) {
     let size = Vec2::new(dark_w + client_w + pad.x * 2.0, text_h + pad.y * 2.0);
     let rect = Rect::from_min_size(egui::pos2(MARGIN, MARGIN), size);
 
-    painter.rect_filled(rect, Rounding::same(theme::RADIUS), Color32::from_black_alpha(165));
-    painter.rect_stroke(rect, Rounding::same(theme::RADIUS), Stroke::new(1.0_f32, theme::BORDER));
+    painter.rect_filled(
+        rect,
+        Rounding::same(theme::RADIUS),
+        Color32::from_black_alpha(165),
+    );
+    painter.rect_stroke(
+        rect,
+        Rounding::same(theme::RADIUS),
+        Stroke::new(1.0_f32, theme::BORDER),
+    );
 
     // Accent edge on the left side of the chip.
     let edge = Rect::from_min_size(rect.min, Vec2::new(3.0, rect.height()));
     painter.rect_filled(
         edge,
-        Rounding { nw: theme::RADIUS, sw: theme::RADIUS, ne: 0.0, se: 0.0 },
+        Rounding {
+            nw: theme::RADIUS,
+            sw: theme::RADIUS,
+            ne: 0.0,
+            se: 0.0,
+        },
         theme::ACCENT,
     );
 
     let anchor = egui::pos2(rect.min.x + pad.x, rect.center().y);
-    let after = painter.text(anchor, Align2::LEFT_CENTER, "Dark", font.clone(), theme::TEXT);
+    let after = painter.text(
+        anchor,
+        Align2::LEFT_CENTER,
+        "Dark",
+        font.clone(),
+        theme::TEXT,
+    );
     painter.text(
         egui::pos2(after.max.x, anchor.y),
         Align2::LEFT_CENTER,
@@ -67,7 +87,7 @@ fn draw_arraylist(ctx: &Context, painter: &Painter) {
     let font = FontId::proportional(14.0);
 
     // One lock per module: snapshot just the name and enabled flag.
-    let snapshot: Vec<(String, bool)> = match DarkClient::instance().modules.read() {
+    let snapshot: Vec<(String, bool)> = match crate::state::client().modules.read() {
         Ok(guard) => guard
             .values()
             .map(|m| {
@@ -83,7 +103,13 @@ fn draw_arraylist(ctx: &Context, painter: &Painter) {
     // keep a slot while their factor decays toward zero.
     let mut rows: Vec<(String, f32, f32)> = Vec::new(); // (name, factor, text width)
     for (name, enabled) in snapshot {
-        let factor = anim::toggle(ctx, Id::new("arraylist").with(&name), enabled, 0.22, Easing::Out);
+        let factor = anim::toggle(
+            ctx,
+            Id::new("arraylist").with(&name),
+            enabled,
+            0.22,
+            Easing::Out,
+        );
         if factor <= 0.001 {
             continue;
         }
@@ -119,7 +145,10 @@ fn draw_arraylist(ctx: &Context, painter: &Painter) {
         );
 
         // Accent tab welded to the right screen edge.
-        let tab = Rect::from_min_size(rect.right_top() - Vec2::new(2.0, 0.0), Vec2::new(2.0, ROW_H));
+        let tab = Rect::from_min_size(
+            rect.right_top() - Vec2::new(2.0, 0.0),
+            Vec2::new(2.0, ROW_H),
+        );
         painter.rect_filled(tab, Rounding::ZERO, theme::with_alpha(theme::ACCENT, eased));
 
         painter.text(

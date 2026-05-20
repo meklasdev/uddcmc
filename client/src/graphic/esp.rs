@@ -17,10 +17,9 @@
 //! The chest scan is heavier (it walks loaded chunks) so it runs even rarer,
 //! every [`CHEST_SCAN_INTERVAL`].
 
-use crate::client::DarkClient;
-use crate::mapping::client::minecraft::Minecraft;
 use crate::mapping::{FieldType, Mapping, MinecraftClassType as Cls};
 use crate::module::ModuleSetting;
+use crate::state::{client, mapping, minecraft};
 use egui::{
     pos2, vec2, Align2, Color32, Context, FontId, Id, LayerId, Order, Painter, Pos2, Rect,
     Rounding, Stroke,
@@ -293,7 +292,7 @@ fn read_config() -> EspConfig {
         },
     };
 
-    let registry = match DarkClient::instance().modules.read() {
+    let registry = match client().modules.read() {
         Ok(guard) => guard,
         Err(_) => return cfg,
     };
@@ -355,7 +354,10 @@ pub fn draw(ctx: &Context) {
     }
 
     let now = Instant::now();
-    if state.last_gather.map_or(true, |t| now - t >= GATHER_INTERVAL) {
+    if state
+        .last_gather
+        .map_or(true, |t| now - t >= GATHER_INTERVAL)
+    {
         gather(&mut state, &cfg, now);
     }
 
@@ -394,7 +396,7 @@ fn interp_factor(state: &EspState, now: Instant) -> f64 {
 
 /// Resolves the current camera into a [`View`], caching the JNI handles.
 fn read_view(state: &mut EspState, ctx: &Context) -> Option<View> {
-    let mapping = Minecraft::instance().get_mapping();
+    let mapping = mapping();
 
     if state.camera.is_none() {
         match init_camera(mapping) {
@@ -421,13 +423,19 @@ fn read_view(state: &mut EspState, ctx: &Context) -> Option<View> {
                 Cls::Camera,
                 cam.as_obj(),
                 "position",
-                FieldType::Object(Cls::Vec3, mapping),
+                FieldType::Object(Cls::Vec3),
             )?
             .l()?;
         let cam_pos = V3 {
-            x: mapping.get_field(Cls::Vec3, &pos, "x", FieldType::Double)?.d()?,
-            y: mapping.get_field(Cls::Vec3, &pos, "y", FieldType::Double)?.d()?,
-            z: mapping.get_field(Cls::Vec3, &pos, "z", FieldType::Double)?.d()?,
+            x: mapping
+                .get_field(Cls::Vec3, &pos, "x", FieldType::Double)?
+                .d()?,
+            y: mapping
+                .get_field(Cls::Vec3, &pos, "y", FieldType::Double)?
+                .d()?,
+            z: mapping
+                .get_field(Cls::Vec3, &pos, "z", FieldType::Double)?
+                .d()?,
         };
         let yaw = mapping
             .get_field(Cls::Camera, cam.as_obj(), "yRot", FieldType::Float)?
@@ -468,7 +476,7 @@ fn read_view(state: &mut EspState, ctx: &Context) -> Option<View> {
 
 /// Fetches the (session-stable) `Camera` handle via the game renderer.
 fn init_camera(mapping: &Mapping) -> anyhow::Result<GlobalRef> {
-    let mc = Minecraft::instance();
+    let mc = minecraft();
     let mut env = mapping.get_env()?;
     env.with_local_frame(16, |_| -> anyhow::Result<GlobalRef> {
         let renderer = mapping
@@ -476,7 +484,7 @@ fn init_camera(mapping: &Mapping) -> anyhow::Result<GlobalRef> {
                 Cls::Minecraft,
                 mc.jni_ref.as_obj(),
                 "gameRenderer",
-                FieldType::Object(Cls::GameRenderer, mapping),
+                FieldType::Object(Cls::GameRenderer),
             )?
             .l()?;
         let camera = mapping
@@ -503,7 +511,7 @@ fn read_fov(mapping: &Mapping) -> f64 {
 /// while flying and ≈×1.15 while sprinting — the constants from
 /// `Player.getFieldOfViewModifier`.
 fn fov_modifier(mapping: &Mapping) -> f64 {
-    let player = match Minecraft::instance().get_player() {
+    let player = match minecraft().get_player() {
         Ok(player) => player,
         Err(_) => return 1.0,
     };
@@ -525,7 +533,12 @@ fn fov_modifier(mapping: &Mapping) -> f64 {
     }
 
     let sprinting = mapping
-        .call_method(Cls::Entity, player.entity.jni_ref.as_obj(), "isSprinting", &[])
+        .call_method(
+            Cls::Entity,
+            player.entity.jni_ref.as_obj(),
+            "isSprinting",
+            &[],
+        )
         .ok()
         .and_then(|value| value.z().ok())
         .unwrap_or(false);
@@ -538,7 +551,7 @@ fn fov_modifier(mapping: &Mapping) -> f64 {
 
 /// Reads the raw FOV slider value from the game options.
 fn read_option_fov(mapping: &Mapping) -> anyhow::Result<f64> {
-    let mc = Minecraft::instance();
+    let mc = minecraft();
     let mut env = mapping.get_env()?;
     env.with_local_frame(16, |_| -> anyhow::Result<f64> {
         let options = mapping
@@ -546,7 +559,7 @@ fn read_option_fov(mapping: &Mapping) -> anyhow::Result<f64> {
                 Cls::Minecraft,
                 mc.jni_ref.as_obj(),
                 "options",
-                FieldType::Object(Cls::Options, mapping),
+                FieldType::Object(Cls::Options),
             )?
             .l()?;
         let option = mapping
@@ -554,7 +567,7 @@ fn read_option_fov(mapping: &Mapping) -> anyhow::Result<f64> {
                 Cls::Options,
                 &options,
                 "fov",
-                FieldType::Object(Cls::OptionInstance, mapping),
+                FieldType::Object(Cls::OptionInstance),
             )?
             .l()?;
         let value = mapping
@@ -573,7 +586,7 @@ fn read_option_fov(mapping: &Mapping) -> anyhow::Result<f64> {
 fn gather(state: &mut EspState, cfg: &EspConfig, now: Instant) {
     state.prev_gather = state.last_gather;
     state.last_gather = Some(now);
-    state.target_fov = read_fov(Minecraft::instance().get_mapping());
+    state.target_fov = read_fov(mapping());
 
     if cfg.player.enabled || cfg.mob.enabled {
         let mut range = 0.0_f32;
@@ -618,8 +631,8 @@ fn gather_entities(
     want_player: bool,
     want_mob: bool,
 ) -> anyhow::Result<Vec<EntityTarget>> {
-    let mc = Minecraft::instance();
-    let mapping = mc.get_mapping();
+    let mc = minecraft();
+    let mapping = mapping();
 
     // Carry positions forward so the new snapshot can interpolate from them.
     let prev_pos: HashMap<i32, V3> = previous.iter().map(|e| (e.id, e.pos)).collect();
@@ -634,7 +647,14 @@ fn gather_entities(
                 .call_method(Cls::Entity, player.entity.jni_ref.as_obj(), "getId", &[])?
                 .i()?;
             let pos = player.entity.get_position()?;
-            (id, V3 { x: pos.0, y: pos.1, z: pos.2 })
+            (
+                id,
+                V3 {
+                    x: pos.0,
+                    y: pos.1,
+                    z: pos.2,
+                },
+            )
         };
 
         let level = mapping
@@ -642,7 +662,7 @@ fn gather_entities(
                 Cls::Minecraft,
                 mc.jni_ref.as_obj(),
                 "level",
-                FieldType::Object(Cls::Level, mapping),
+                FieldType::Object(Cls::Level),
             )?
             .l()?;
         if level.is_null() {
@@ -670,8 +690,14 @@ fn gather_entities(
                     .call_method(Cls::Iterator, &iterator, "next", &[])?
                     .l()?;
                 Ok(process_entity(
-                    mapping, &entity, local_id, player_pos, range_sq, want_player,
-                    want_mob, &prev_pos,
+                    mapping,
+                    &entity,
+                    local_id,
+                    player_pos,
+                    range_sq,
+                    want_player,
+                    want_mob,
+                    &prev_pos,
                 ))
             })?;
             if let Some(target) = target {
@@ -772,9 +798,21 @@ fn read_vec3(mapping: &Mapping, obj: &JObject, method: &str) -> Option<V3> {
         .l()
         .ok()?;
     Some(V3 {
-        x: mapping.get_field(Cls::Vec3, &vec3, "x", FieldType::Double).ok()?.d().ok()?,
-        y: mapping.get_field(Cls::Vec3, &vec3, "y", FieldType::Double).ok()?.d().ok()?,
-        z: mapping.get_field(Cls::Vec3, &vec3, "z", FieldType::Double).ok()?.d().ok()?,
+        x: mapping
+            .get_field(Cls::Vec3, &vec3, "x", FieldType::Double)
+            .ok()?
+            .d()
+            .ok()?,
+        y: mapping
+            .get_field(Cls::Vec3, &vec3, "y", FieldType::Double)
+            .ok()?
+            .d()
+            .ok()?,
+        z: mapping
+            .get_field(Cls::Vec3, &vec3, "z", FieldType::Double)
+            .ok()?
+            .d()
+            .ok()?,
     })
 }
 
@@ -809,8 +847,8 @@ fn read_health(mapping: &Mapping, entity: &JObject) -> anyhow::Result<(f32, f32)
 
 /// Scans loaded chunks around the player for container block entities.
 fn gather_chests() -> anyhow::Result<Vec<ChestTarget>> {
-    let mc = Minecraft::instance();
-    let mapping = mc.get_mapping();
+    let mc = minecraft();
+    let mapping = mapping();
 
     let mut env = mapping.get_env()?;
     let mut out: Vec<ChestTarget> = Vec::new();
@@ -821,7 +859,7 @@ fn gather_chests() -> anyhow::Result<Vec<ChestTarget>> {
                 Cls::Minecraft,
                 mc.jni_ref.as_obj(),
                 "level",
-                FieldType::Object(Cls::Level, mapping),
+                FieldType::Object(Cls::Level),
             )?
             .l()?;
         if level.is_null() {
@@ -918,7 +956,13 @@ fn block_entity_pos(mapping: &Mapping, block_entity: &JObject) -> Option<V3> {
         .l()
         .ok()?;
     let axis = |name: &str| -> Option<f64> {
-        Some(mapping.call_method(Cls::Vec3i, &block_pos, name, &[]).ok()?.i().ok()? as f64)
+        Some(
+            mapping
+                .call_method(Cls::Vec3i, &block_pos, name, &[])
+                .ok()?
+                .i()
+                .ok()? as f64,
+        )
     };
     Some(V3 {
         x: axis("getX")?,
@@ -931,28 +975,74 @@ fn block_entity_pos(mapping: &Mapping, block_entity: &JObject) -> Option<V3> {
 
 /// The 12 edges of a box, as index pairs into an 8-corner array.
 const EDGES: [(usize, usize); 12] = [
-    (0, 1), (1, 2), (2, 3), (3, 0), // bottom
-    (4, 5), (5, 6), (6, 7), (7, 4), // top
-    (0, 4), (1, 5), (2, 6), (3, 7), // verticals
+    (0, 1),
+    (1, 2),
+    (2, 3),
+    (3, 0), // bottom
+    (4, 5),
+    (5, 6),
+    (6, 7),
+    (7, 4), // top
+    (0, 4),
+    (1, 5),
+    (2, 6),
+    (3, 7), // verticals
 ];
 
 /// The 8 corners of an axis-aligned box `[min, max]`.
 fn box_corners(min: V3, max: V3) -> [V3; 8] {
     [
-        V3 { x: min.x, y: min.y, z: min.z },
-        V3 { x: max.x, y: min.y, z: min.z },
-        V3 { x: max.x, y: min.y, z: max.z },
-        V3 { x: min.x, y: min.y, z: max.z },
-        V3 { x: min.x, y: max.y, z: min.z },
-        V3 { x: max.x, y: max.y, z: min.z },
-        V3 { x: max.x, y: max.y, z: max.z },
-        V3 { x: min.x, y: max.y, z: max.z },
+        V3 {
+            x: min.x,
+            y: min.y,
+            z: min.z,
+        },
+        V3 {
+            x: max.x,
+            y: min.y,
+            z: min.z,
+        },
+        V3 {
+            x: max.x,
+            y: min.y,
+            z: max.z,
+        },
+        V3 {
+            x: min.x,
+            y: min.y,
+            z: max.z,
+        },
+        V3 {
+            x: min.x,
+            y: max.y,
+            z: min.z,
+        },
+        V3 {
+            x: max.x,
+            y: max.y,
+            z: min.z,
+        },
+        V3 {
+            x: max.x,
+            y: max.y,
+            z: max.z,
+        },
+        V3 {
+            x: min.x,
+            y: max.y,
+            z: max.z,
+        },
     ]
 }
 
 /// Draws a wireframe box and returns its 2D screen bounds (for label
 /// placement), or `None` if no corner is in front of the camera.
-fn draw_wire_box(painter: &Painter, view: &View, corners: &[V3; 8], color: Color32) -> Option<Rect> {
+fn draw_wire_box(
+    painter: &Painter,
+    view: &View,
+    corners: &[V3; 8],
+    color: Color32,
+) -> Option<Rect> {
     let projected: [Option<Pos2>; 8] = std::array::from_fn(|i| view.project(corners[i]));
     let stroke = Stroke::new(LINE_WIDTH, color);
 
@@ -981,8 +1071,16 @@ fn draw_entity(painter: &Painter, view: &View, entity: &EntityTarget, t: f64, cf
     let feet = entity.prev.lerp(entity.pos, t);
     let half = entity.width * 0.5;
     let corners = box_corners(
-        V3 { x: feet.x - half, y: feet.y, z: feet.z - half },
-        V3 { x: feet.x + half, y: feet.y + entity.height, z: feet.z + half },
+        V3 {
+            x: feet.x - half,
+            y: feet.y,
+            z: feet.z - half,
+        },
+        V3 {
+            x: feet.x + half,
+            y: feet.y + entity.height,
+            z: feet.z + half,
+        },
     );
 
     let rect = match draw_wire_box(painter, view, &corners, icfg.color) {
@@ -1017,7 +1115,11 @@ fn draw_entity(painter: &Painter, view: &View, entity: &EntityTarget, t: f64, cf
 fn draw_chest(painter: &Painter, view: &View, chest: &ChestTarget, cfg: &EspConfig) {
     let corners = box_corners(
         chest.pos,
-        V3 { x: chest.pos.x + 1.0, y: chest.pos.y + 1.0, z: chest.pos.z + 1.0 },
+        V3 {
+            x: chest.pos.x + 1.0,
+            y: chest.pos.y + 1.0,
+            z: chest.pos.z + 1.0,
+        },
     );
     let rect = match draw_wire_box(painter, view, &corners, cfg.chest.color) {
         Some(rect) => rect,

@@ -5,8 +5,7 @@
 //! Minecraft. The logic is platform-agnostic; only locating the GLFW shared
 //! library differs between Linux and Windows (see [`open_glfw_library`]).
 
-use crate::client::DarkClient;
-use crate::mapping::client::minecraft::Minecraft;
+use crate::state::{client, minecraft};
 use libloading::Library;
 use log::info;
 use std::ffi::c_void;
@@ -238,12 +237,12 @@ fn toggle_gui() {
 
 /// Toggles any module whose keybind matches `key`, when in-world.
 fn handle_module_keybind(key: i32) {
-    let minecraft = Minecraft::instance();
+    let minecraft = minecraft();
     if !minecraft.current_screen_is_null() || minecraft.get_player().is_err() {
         return;
     }
 
-    let client = DarkClient::instance();
+    let client = client();
     let Ok(modules) = client.modules.read() else {
         return;
     };
@@ -289,7 +288,9 @@ fn install_glfw_hooks() -> Option<GlfwHooks> {
     let library = open_glfw_library()?;
 
     unsafe {
-        let get_context = *library.get::<GetCurrentContext>(b"glfwGetCurrentContext").ok()?;
+        let get_context = *library
+            .get::<GetCurrentContext>(b"glfwGetCurrentContext")
+            .ok()?;
         let set_mouse_button = *library
             .get::<SetMouseButtonCallback>(b"glfwSetMouseButtonCallback")
             .ok()?;
