@@ -21,6 +21,9 @@ mod method;
 mod minecraft_version;
 mod reflect;
 
+#[cfg(test)]
+mod jvm_test;
+
 /// On-disk JSON shape. Only obfuscated builds ship one of these.
 #[derive(Debug, Deserialize)]
 struct MappingFile {

@@ -24,5 +24,13 @@ libloading = "0.9.0"
 ilhook = "2.3.0"
 lazy_static = "1.4.0"
 
+[dev-dependencies]
+# The `invocation` feature provides `JavaVM::new`, used by the in-process
+# JVM integration tests (client/src/mapping/jvm_test.rs).
+jni = { workspace = true, features = ["invocation"] }
+
 [build-dependencies]
 gl_generator = "0.14"
+
+[target.'cfg(target_os = "linux")'.build-dependencies]
+java-locator = "0.1"

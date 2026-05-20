@@ -1,7 +1,8 @@
 // build.rs
-// Generates the OpenGL bindings (`bindings.rs`) on every platform.
-// On Windows (MSVC) it additionally locates the `jvm.lib` import library
-// required to link JNI functions; on Linux the linker uses libjvm.so directly.
+// Generates the OpenGL bindings (`bindings.rs`) on every platform, and locates
+// the JVM library so JNI symbols link: `jvm.lib` on Windows (MSVC), `libjvm.so`
+// on Linux. The injected `cdylib` could resolve those symbols from the host JVM
+// at load time, but the `cargo test` executables must have them linked.
 
 use gl_generator::{Api, Fallbacks, GlobalGenerator, Profile, Registry};
 use std::env;
@@ -21,6 +22,28 @@ fn main() {
 
     #[cfg(windows)]
     find_jvm_lib();
+
+    #[cfg(target_os = "linux")]
+    link_jvm_linux();
+}
+
+/// Links `libjvm.so` on Linux by locating it through `java-locator`.
+#[cfg(target_os = "linux")]
+fn link_jvm_linux() {
+    println!("cargo:rerun-if-env-changed=JAVA_HOME");
+    match java_locator::locate_jvm_dyn_library() {
+        Ok(dir) => {
+            println!("cargo:rustc-link-search=native={dir}");
+            println!("cargo:rustc-link-lib=dylib=jvm");
+            // RPATH so the `cargo test` executables can find libjvm.so at
+            // run time. Harmless for the injected cdylib — it resolves libjvm
+            // from the host JVM process, which has it loaded already.
+            println!("cargo:rustc-link-arg=-Wl,-rpath,{dir}");
+        }
+        Err(e) => {
+            println!("cargo:warning=libjvm.so could not be located: {e}");
+        }
+    }
 }
 
 #[cfg(windows)]
