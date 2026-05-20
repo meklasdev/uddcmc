@@ -15,7 +15,9 @@ used_linker = []
 [dependencies]
 ctor.workspace = true
 log.workspace = true
-simplelog.workspace = true
 jni.workspace = true
-libc.workspace = true
 libloading = "0.8.0"
+protocol = { path = "../protocol" }
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
