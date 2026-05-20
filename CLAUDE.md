@@ -55,6 +55,8 @@ This is the core control flow and spans all three crates:
 
 Both modes share one code path: a `RwLock<HashMap<String, Arc<MinecraftClass>>>` populated up-front (obfuscated) or lazily by reflection (reflected). `Mapping` wraps all JNI calls (`call_method`, `call_static_method`, `get_field`, `set_field`, etc.); `class.rs` does overload resolution by scoring argument-type compatibility against JNI signatures.
 
+**Mod loaders (`loader.rs`)**: Fabric and Forge/NeoForge run the game in an isolated class loader (`KnotClassLoader` / `TransformingClassLoader`), so `find_class` from a native thread resolves a dead duplicate of `Minecraft` whose static `instance` is null. `Mapping::new()` calls `loader::discover_game_loader` first — it scans every live thread's context class loader and keeps the one whose `Minecraft.getInstance()` is non-null. That loader is stored in `class_loader` so every later lookup goes through `ClassLoader.loadClass`. This works loader-agnostically for vanilla, Fabric and Forge on unobfuscated builds; obfuscated Minecraft under a mod loader (intermediary/SRG names) is not supported.
+
 **Lifecycle safety**: the global `RUNNING: AtomicBool` gates `on_frame` and the agent's loops. A panic hook in `initialize_client` calls `cleanup_client` so input/render hooks are always uninstalled and GLFW callbacks restored, even on panic.
 
 ## Mappings
