@@ -15,6 +15,7 @@ jni.workspace = true
 serde.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
+dashmap.workspace = true
 libc.workspace = true
 egui_glow = "0.29.0"
 glow = "0.14.0"

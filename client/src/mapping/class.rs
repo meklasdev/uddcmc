@@ -112,10 +112,10 @@ impl MinecraftClass {
     }
 
     pub fn get_method(&self, name: &str) -> anyhow::Result<&Method> {
-        match self.methods.get(name).unwrap().first() {
-            Some(method) => Ok(method),
-            None => Err(anyhow!("{} method not found", name)),
-        }
+        self.methods
+            .get(name)
+            .and_then(|overloads| overloads.first())
+            .ok_or_else(|| anyhow!("{} method not found", name))
     }
 
     pub fn get_methods(&self, name: &str) -> anyhow::Result<&Vec<Method>> {

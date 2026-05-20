@@ -1,6 +1,7 @@
 use crate::mapping::class::{Method, MethodHandle, MinecraftClass};
 pub use crate::mapping::class_type::MinecraftClassType;
 use crate::mapping::minecraft_version::MinecraftVersion;
+use dashmap::DashMap;
 use jni::objects::{GlobalRef, JClass, JMethodID, JObject, JString, JValue, JValueOwned};
 use jni::signature::{Primitive, ReturnType};
 use jni::sys::{jsize, jvalue, JNI_GetCreatedJavaVMs, JNI_OK};
@@ -46,8 +47,9 @@ pub struct Mapping {
     mode: Mode,
     version: MinecraftVersion,
     /// In obfuscated mode every class is present up-front; in reflected mode
-    /// classes are discovered and cached on first use.
-    classes: RwLock<HashMap<String, Arc<MinecraftClass>>>,
+    /// classes are discovered and cached on first use. A `DashMap` so the
+    /// render thread reads it without contending on one global lock.
+    classes: DashMap<String, Arc<MinecraftClass>>,
     /// The class loader that runs the game. On modded builds (Fabric / Forge)
     /// it is discovered up-front by [`loader::discover_game_loader`]; on vanilla
     /// it is captured the first time a class resolves. `JNIEnv::find_class` is
@@ -58,7 +60,7 @@ pub struct Mapping {
     class_loader: RwLock<Option<GlobalRef>>,
     /// Cache of resolved JVM classes — and known-missing ones (`None`) — keyed
     /// by JNI name, so a class is searched for at most once.
-    class_handles: RwLock<HashMap<String, Option<GlobalRef>>>,
+    class_handles: DashMap<String, Option<GlobalRef>>,
 }
 
 #[allow(dead_code)]
@@ -154,9 +156,9 @@ impl Mapping {
                 jvm,
                 mode: Mode::Reflected,
                 version: MinecraftVersion::LATEST,
-                classes: RwLock::new(HashMap::new()),
+                classes: DashMap::new(),
                 class_loader: RwLock::new(game_loader),
-                class_handles: RwLock::new(HashMap::new()),
+                class_handles: DashMap::new(),
             });
         }
 
@@ -179,9 +181,9 @@ impl Mapping {
             jvm,
             mode: Mode::Obfuscated,
             version: file.version,
-            classes: RwLock::new(classes),
+            classes,
             class_loader: RwLock::new(None),
-            class_handles: RwLock::new(HashMap::new()),
+            class_handles: DashMap::new(),
         })
     }
 
@@ -198,21 +200,23 @@ impl Mapping {
     /// Resolves a mapped class by its deobfuscated name. In reflected mode the
     /// class is reflected from the JVM and cached on first request.
     pub fn get_class(&self, name: &str) -> anyhow::Result<Arc<MinecraftClass>> {
-        if let Some(class) = self.classes.read().unwrap().get(name) {
-            return Ok(Arc::clone(class));
+        if let Some(class) = self.classes.get(name) {
+            return Ok(Arc::clone(class.value()));
         }
 
         match self.mode {
             Mode::Obfuscated => Err(anyhow::anyhow!("{} java class not found", name)),
             Mode::Reflected => {
                 let class = Arc::new(reflect::reflect_class(self, name)?);
-                self.classes
-                    .write()
-                    .unwrap()
-                    .insert(name.to_owned(), Arc::clone(&class));
+                self.classes.insert(name.to_owned(), Arc::clone(&class));
                 Ok(class)
             }
         }
+    }
+
+    /// The captured Minecraft class loader, if any — poison-safe.
+    fn loader(&self) -> Option<GlobalRef> {
+        self.class_loader.read().ok().and_then(|slot| slot.clone())
     }
 
     /// Resolves a JVM class by its JNI name, working from any thread.
@@ -231,8 +235,8 @@ impl Mapping {
         env: &mut JNIEnv<'a>,
         jni_name: &str,
     ) -> anyhow::Result<JClass<'a>> {
-        if let Some(cached) = self.class_handles.read().unwrap().get(jni_name).cloned() {
-            return match cached {
+        if let Some(cached) = self.class_handles.get(jni_name) {
+            return match cached.value() {
                 Some(handle) => Ok(JClass::from(env.new_local_ref(handle.as_obj())?)),
                 None => Err(anyhow::anyhow!("Class {} not present at runtime", jni_name)),
             };
@@ -249,17 +253,14 @@ impl Mapping {
                 jni_name
             );
         }
-        self.class_handles
-            .write()
-            .unwrap()
-            .insert(jni_name.to_owned(), handle);
+        self.class_handles.insert(jni_name.to_owned(), handle);
         resolved
     }
 
     /// Looks a class up from scratch: through the captured Minecraft class
     /// loader if available, otherwise through `find_class`.
     fn lookup_class<'a>(&self, env: &mut JNIEnv<'a>, jni_name: &str) -> anyhow::Result<JClass<'a>> {
-        if let Some(loader) = self.class_loader.read().unwrap().clone() {
+        if let Some(loader) = self.loader() {
             let binary_name = jni_name.replace('/', ".");
             let name: JObject = env.new_string(binary_name)?.into();
             return match env.call_method(
@@ -292,14 +293,16 @@ impl Mapping {
 
     /// Records the class loader of `jclass` as the Minecraft class loader.
     fn capture_class_loader(&self, env: &mut JNIEnv, jclass: &JClass) {
-        if self.class_loader.read().unwrap().is_some() {
+        if self.loader().is_some() {
             return;
         }
         let loader = env.call_method(jclass, "getClassLoader", "()Ljava/lang/ClassLoader;", &[]);
         match loader.and_then(|value| value.l()) {
             Ok(obj) if !obj.is_null() => {
-                if let Ok(global) = env.new_global_ref(obj) {
-                    *self.class_loader.write().unwrap() = Some(global);
+                if let (Ok(global), Ok(mut slot)) =
+                    (env.new_global_ref(obj), self.class_loader.write())
+                {
+                    *slot = Some(global);
                 }
             }
             _ => {
@@ -336,11 +339,9 @@ impl Mapping {
     /// Only meaningful in obfuscated mode; used to prettify error messages.
     fn find_class_by_obfuscated_name(&self, obfuscated_name: &str) -> Option<String> {
         self.classes
-            .read()
-            .unwrap()
             .iter()
-            .find(|(_, class)| class.name == obfuscated_name)
-            .map(|(deobfuscated_name, _)| deobfuscated_name.clone())
+            .find(|entry| entry.value().name == obfuscated_name)
+            .map(|entry| entry.key().clone())
     }
 
     fn translate_type_descriptor<'a>(&self, descriptor: &mut &'a str) -> String {
