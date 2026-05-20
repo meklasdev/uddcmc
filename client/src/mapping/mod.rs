@@ -5,9 +5,10 @@ use crate::mapping::client::minecraft::Minecraft;
 use crate::mapping::minecraft_version::MinecraftVersion;
 use jni::objects::{GlobalRef, JObject, JString, JValue, JValueOwned};
 use jni::JNIEnv;
-use log::error;
+use log::{error, info};
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 
 pub mod class;
 pub mod class_type;
@@ -16,6 +17,7 @@ pub mod entity;
 pub mod java;
 mod method;
 mod minecraft_version;
+mod reflect;
 
 pub trait GameContext {
     fn minecraft(&self) -> &'static Minecraft {
@@ -27,11 +29,32 @@ pub trait GameContext {
     }
 }
 
-/// Root structure containing all mapped Minecraft classes
+/// On-disk JSON shape. Only obfuscated builds ship one of these.
 #[derive(Debug, Deserialize)]
-pub struct Mapping {
+struct MappingFile {
     version: MinecraftVersion,
     classes: HashMap<String, MinecraftClass>,
+}
+
+/// How class / method / field names are resolved to their runtime form.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    /// Obfuscated build: translate names through the bundled Mojmap JSON.
+    Obfuscated,
+    /// Unobfuscated build (Minecraft 26.1+): names are already real, method
+    /// signatures are discovered lazily via JNI reflection.
+    Reflected,
+}
+
+/// Bridges deobfuscated (Mojmap) names to whatever the running JVM actually
+/// uses, transparently for both obfuscated and unobfuscated Minecraft.
+#[derive(Debug)]
+pub struct Mapping {
+    mode: Mode,
+    version: MinecraftVersion,
+    /// In obfuscated mode every class is present up-front; in reflected mode
+    /// classes are discovered and cached on first use.
+    classes: RwLock<HashMap<String, Arc<MinecraftClass>>>,
 }
 
 #[allow(dead_code)]
@@ -60,26 +83,63 @@ impl FieldType<'_> {
             FieldType::Float => String::from("F"),
             FieldType::Double => String::from("D"),
             FieldType::String => String::from("Ljava/lang/String;"),
-            FieldType::Object(minecraft_class_type, mapping) => {
-                let class_name = &mapping.get_class(minecraft_class_type.get_name())?.name;
-                format!("L{};", class_name)
+            FieldType::Object(class_type, mapping) => {
+                format!("L{};", mapping.runtime_class_name(*class_type)?)
             }
         })
+    }
+}
+
+/// Probes whether the running Minecraft is unobfuscated.
+///
+/// In an unobfuscated build the real Mojmap class name resolves directly; in
+/// an obfuscated build that class only exists under its scrambled name, so the
+/// lookup fails (and the resulting pending exception is cleared).
+fn is_unobfuscated() -> bool {
+    match DarkClient::instance().get_env() {
+        Ok(mut env) => {
+            let found = env.find_class("net/minecraft/client/Minecraft").is_ok();
+            if !found {
+                let _ = env.exception_clear();
+            }
+            found
+        }
+        Err(_) => false,
     }
 }
 
 #[allow(dead_code)]
 impl Mapping {
     pub fn new() -> anyhow::Result<Mapping> {
-        let contents = include_str!("../../../mappings.json");
-        let mut mapping: Mapping = serde_json::from_str(contents)?;
+        if is_unobfuscated() {
+            info!("Unobfuscated Minecraft detected — using runtime reflection mapping");
+            return Ok(Mapping {
+                mode: Mode::Reflected,
+                version: MinecraftVersion::LATEST,
+                classes: RwLock::new(HashMap::new()),
+            });
+        }
 
-        let java_contents = include_str!("../../../java_mappings.json");
-        let java_classes: HashMap<String, MinecraftClass> = serde_json::from_str(java_contents)?;
+        info!("Obfuscated Minecraft detected — using bundled Mojmap mappings");
+        let mut file: MappingFile = serde_json::from_str(include_str!("../../../mappings.json"))?;
 
-        mapping.classes.extend(java_classes);
+        // Standard `java.*` classes are never obfuscated; they live in a
+        // small hand-written supplement.
+        let java_classes: HashMap<String, MinecraftClass> =
+            serde_json::from_str(include_str!("../../../java_mappings.json"))?;
+        file.classes.extend(java_classes);
 
-        Ok(mapping)
+        let classes = file
+            .classes
+            .into_iter()
+            .map(|(name, class)| (name, Arc::new(class)))
+            .collect();
+
+        Ok(Mapping {
+            mode: Mode::Obfuscated,
+            version: file.version,
+            classes: RwLock::new(classes),
+        })
     }
 
     fn get_client(&self) -> &DarkClient {
@@ -94,19 +154,59 @@ impl Mapping {
         self.version
     }
 
-    pub fn get_class(&self, name: &str) -> anyhow::Result<&MinecraftClass> {
-        match self.classes.get(name) {
-            Some(class) => Ok(class),
-            None => Err(anyhow::anyhow!("{} java class not found", name)),
+    /// Resolves a mapped class by its deobfuscated name. In reflected mode the
+    /// class is reflected from the JVM and cached on first request.
+    pub fn get_class(&self, name: &str) -> anyhow::Result<Arc<MinecraftClass>> {
+        if let Some(class) = self.classes.read().unwrap().get(name) {
+            return Ok(Arc::clone(class));
+        }
+
+        match self.mode {
+            Mode::Obfuscated => Err(anyhow::anyhow!("{} java class not found", name)),
+            Mode::Reflected => {
+                let class = Arc::new(reflect::reflect_class(name)?);
+                self.classes
+                    .write()
+                    .unwrap()
+                    .insert(name.to_owned(), Arc::clone(&class));
+                Ok(class)
+            }
         }
     }
 
-    /// Find the real name of a class given his obfuscated name
-    fn find_class_by_obfuscated_name(&self, obfuscated_name: &str) -> Option<&str> {
+    /// Runtime (JVM) name of a class.
+    fn runtime_class_name(&self, class_type: MinecraftClassType) -> anyhow::Result<String> {
+        match self.mode {
+            Mode::Reflected => Ok(class_type.get_name().to_owned()),
+            Mode::Obfuscated => Ok(self.get_class(class_type.get_name())?.name.clone()),
+        }
+    }
+
+    /// Runtime (JVM) name of a field.
+    fn runtime_field_name(
+        &self,
+        class_type: MinecraftClassType,
+        field: &str,
+    ) -> anyhow::Result<String> {
+        match self.mode {
+            Mode::Reflected => Ok(field.to_owned()),
+            Mode::Obfuscated => Ok(self
+                .get_class(class_type.get_name())?
+                .get_field(field)?
+                .name
+                .clone()),
+        }
+    }
+
+    /// Finds the deobfuscated name of a class given its obfuscated name.
+    /// Only meaningful in obfuscated mode; used to prettify error messages.
+    fn find_class_by_obfuscated_name(&self, obfuscated_name: &str) -> Option<String> {
         self.classes
+            .read()
+            .unwrap()
             .iter()
-            .find(|(_, class_data)| class_data.name == obfuscated_name)
-            .map(|(deobfuscated_name, _)| deobfuscated_name.as_str())
+            .find(|(_, class)| class.name == obfuscated_name)
+            .map(|(deobfuscated_name, _)| deobfuscated_name.clone())
     }
 
     fn translate_type_descriptor<'a>(&self, descriptor: &mut &'a str) -> String {
@@ -121,12 +221,11 @@ impl Mapping {
                 let obfuscated_name = &stripped[..end_index];
                 let deobfuscated_name = self
                     .find_class_by_obfuscated_name(obfuscated_name)
-                    .unwrap_or(obfuscated_name);
+                    .unwrap_or_else(|| obfuscated_name.to_owned());
 
                 *descriptor = &stripped[end_index + 1..];
-                deobfuscated_name.to_string()
+                deobfuscated_name
             } else {
-                // Malformed, return the rest of the string
                 let rest = descriptor.to_string();
                 *descriptor = "";
                 rest
@@ -163,13 +262,9 @@ impl Mapping {
 
             let translated_return = self.translate_type_descriptor(&mut return_type_str);
 
-            format!(
-                "({}) -> {}",
-                translated_params.join(", "),
-                translated_return
-            )
+            format!("({}) -> {}", translated_params.join(", "), translated_return)
         } else {
-            signature.to_string() // Return the original signature if it's not a valid signature
+            signature.to_string()
         }
     }
 
@@ -185,17 +280,19 @@ impl Mapping {
         let jclass = match env.find_class(&class.name) {
             Ok(jclass) => jclass,
             Err(_) => {
+                let _ = env.exception_clear();
                 return Err(anyhow::anyhow!(
                     "Class {} ({}) not found",
                     class_type.get_name(),
                     class.name
-                ))
+                ));
             }
         };
         let method = class.get_method_by_args(method_name, args)?;
         match env.call_static_method(jclass, &method.name, &method.signature, args) {
             Ok(value) => Ok(value),
             Err(_) => {
+                let _ = env.exception_clear();
                 let translated_signature = self.translate_signature(&method.signature);
                 Err(anyhow::anyhow!(
                     "Error calling static method {} ({}) in class {} ({}) with signature {} ({})",
@@ -224,6 +321,7 @@ impl Mapping {
         match env.call_method(instance, &method.name, &method.signature, args) {
             Ok(value) => Ok(value),
             Err(_) => {
+                let _ = env.exception_clear();
                 let translated_signature = self.translate_signature(&method.signature);
                 Err(anyhow::anyhow!(
                     "Error calling method {} ({}) in class {} ({}) with signature {} ({})",
@@ -246,27 +344,30 @@ impl Mapping {
     ) -> anyhow::Result<JValueOwned<'_>> {
         let mut env = self.get_env()?;
 
-        let class = self.get_class(class_type.get_name())?;
-        let jclass = match env.find_class(&class.name) {
+        let class_name = self.runtime_class_name(class_type)?;
+        let jclass = match env.find_class(&class_name) {
             Ok(jclass) => jclass,
             Err(_) => {
+                let _ = env.exception_clear();
                 return Err(anyhow::anyhow!(
                     "Class {} ({}) not found",
                     class_type.get_name(),
-                    class.name
-                ))
+                    class_name
+                ));
             }
         };
-        let field = class.get_field(field_name)?;
-        match env.get_static_field(jclass, &field.name, field_type.get_signature()?) {
+        let runtime_field = self.runtime_field_name(class_type, field_name)?;
+        match env.get_static_field(jclass, &runtime_field, field_type.get_signature()?) {
             Ok(value) => Ok(value),
-            Err(_) => Err(anyhow::anyhow!(
-                "Error getting static field {} ({}) from class {} ({})",
-                field_name,
-                field.name,
-                class_type.get_name(),
-                class.name
-            )),
+            Err(_) => {
+                let _ = env.exception_clear();
+                Err(anyhow::anyhow!(
+                    "Error getting static field {} ({}) from class {}",
+                    field_name,
+                    runtime_field,
+                    class_type.get_name()
+                ))
+            }
         }
     }
 
@@ -279,18 +380,18 @@ impl Mapping {
     ) -> anyhow::Result<JValueOwned<'_>> {
         let mut env = self.get_env()?;
 
-        let class = self.get_class(class_type.get_name())?;
-        let field = class.get_field(field_name)?;
-
-        match env.get_field(instance, &field.name, field_type.get_signature()?) {
+        let runtime_field = self.runtime_field_name(class_type, field_name)?;
+        match env.get_field(instance, &runtime_field, field_type.get_signature()?) {
             Ok(value) => Ok(value),
-            Err(_) => Err(anyhow::anyhow!(
-                "Error getting field {} ({}) from class {} ({})",
-                field_name,
-                field.name,
-                class_type.get_name(),
-                class.name
-            )),
+            Err(_) => {
+                let _ = env.exception_clear();
+                Err(anyhow::anyhow!(
+                    "Error getting field {} ({}) from class {}",
+                    field_name,
+                    runtime_field,
+                    class_type.get_name()
+                ))
+            }
         }
     }
 
@@ -304,17 +405,18 @@ impl Mapping {
     ) -> anyhow::Result<()> {
         let mut env = self.get_env()?;
 
-        let class = self.get_class(class_type.get_name())?;
-        let field = class.get_field(field_name)?;
-        match env.set_field(instance, &field.name, field_type.get_signature()?, value) {
+        let runtime_field = self.runtime_field_name(class_type, field_name)?;
+        match env.set_field(instance, &runtime_field, field_type.get_signature()?, value) {
             Ok(_) => Ok(()),
-            Err(_) => Err(anyhow::anyhow!(
-                "Error setting field {} ({}) in class {} ({})",
-                field_name,
-                field.name,
-                class_type.get_name(),
-                class.name
-            )),
+            Err(_) => {
+                let _ = env.exception_clear();
+                Err(anyhow::anyhow!(
+                    "Error setting field {} ({}) in class {}",
+                    field_name,
+                    runtime_field,
+                    class_type.get_name()
+                ))
+            }
         }
     }
 
@@ -341,15 +443,16 @@ impl Mapping {
         instance: &JObject,
     ) -> anyhow::Result<bool> {
         let mut env = self.get_env()?;
-        let class = self.get_class(class_type.get_name())?;
-        let jclass = match env.find_class(&class.name) {
+        let class_name = self.runtime_class_name(class_type)?;
+        let jclass = match env.find_class(&class_name) {
             Ok(jclass) => jclass,
             Err(_) => {
+                let _ = env.exception_clear();
                 return Err(anyhow::anyhow!(
                     "Class {} ({}) not found",
                     class_type.get_name(),
-                    class.name
-                ))
+                    class_name
+                ));
             }
         };
 

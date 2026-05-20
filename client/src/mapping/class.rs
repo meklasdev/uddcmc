@@ -86,6 +86,17 @@ enum SignatureMatch {
 
 #[allow(dead_code)]
 impl MinecraftClass {
+    /// Builds a class entry from runtime reflection. Names are identity (no
+    /// obfuscation to translate); only signatures were discovered. Fields are
+    /// left empty — unobfuscated builds resolve field names directly.
+    pub fn from_reflection(name: String, methods: HashMap<String, Vec<Method>>) -> Self {
+        MinecraftClass {
+            name,
+            methods,
+            fields: HashMap::new(),
+        }
+    }
+
     pub fn get_method(&self, name: &str) -> anyhow::Result<&Method> {
         match self.methods.get(name).unwrap().first() {
             Some(method) => Ok(method),

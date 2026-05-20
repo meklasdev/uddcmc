@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-DarkClient is a Minecraft (Java Edition, mappings target **1.21.10**) modification framework written in Rust. It injects native libraries into a running Minecraft JVM and drives the game through JNI. It is a Cargo workspace of three crates.
+DarkClient is a Minecraft (Java Edition) modification framework written in Rust. It injects native libraries into a running Minecraft JVM and drives the game through JNI. One build supports both **obfuscated** Minecraft (≤ 1.21.11, via bundled Mojmap mappings) and **unobfuscated** Minecraft (26.1+, via runtime JNI reflection) — see the mapping system below. It is a Cargo workspace of three crates.
 
 ## Build & Common Commands
 
@@ -48,13 +48,18 @@ This is the core control flow and spans all three crates:
 
 **Module system** (`module/mod.rs`): implement the `Module` trait (`on_start`/`on_stop`/`on_tick`, all returning `anyhow::Result<()>`) plus `ModuleData` accessors. Register new modules in `register_modules()` in `client/src/lib.rs`. Modules carry typed `ModuleSetting`s (Toggle/Slider/Choice/Color). Note: the trait example in `README.md` is stale — the real trait methods return `anyhow::Result<()>`.
 
-**Mapping system** (`mapping/`): handles Minecraft obfuscation. `mappings.json` (project root) and `java_mappings.json` are **`include_str!`'d into the binary at compile time** by `Mapping::new()` — changing mappings requires rebuilding `client`. `MinecraftClassType` enum maps deobfuscated class names to their JSON entries; `Mapping` resolves obfuscated names and wraps all JNI calls (`call_method`, `call_static_method`, `get_field`, `set_field`, etc.). `class.rs` does overload resolution by scoring argument-type compatibility against JNI signatures.
+**Mapping system** (`mapping/`): bridges deobfuscated (Mojmap) names — what `MinecraftClassType` and the rest of the code use — to whatever the running JVM actually exposes. `Mapping::new()` auto-detects the build by probing `find_class("net/minecraft/client/Minecraft")` and picks one of two modes:
+
+- **Obfuscated** (`Mode::Obfuscated`): the probe fails. `mappings.json` and `java_mappings.json` (project root, **`include_str!`'d at compile time**) are parsed into a class map; names are translated deobfuscated → obfuscated.
+- **Reflected** (`Mode::Reflected`): the probe succeeds (Minecraft 26.1+, unobfuscated). No JSON is used; class/method/field names are identity, and method signatures — still required by JNI — are discovered lazily via `java.lang.Class` reflection in `reflect.rs` and cached. No mapping file is ever needed for new versions.
+
+Both modes share one code path: a `RwLock<HashMap<String, Arc<MinecraftClass>>>` populated up-front (obfuscated) or lazily by reflection (reflected). `Mapping` wraps all JNI calls (`call_method`, `call_static_method`, `get_field`, `set_field`, etc.); `class.rs` does overload resolution by scoring argument-type compatibility against JNI signatures.
 
 **Lifecycle safety**: the global `RUNNING: AtomicBool` gates `on_frame` and the agent's loops. A panic hook in `initialize_client` calls `cleanup_client` so input/render hooks are always uninstalled and GLFW callbacks restored, even on panic.
 
 ## Mappings
 
-`conversion.py` downloads official Mojang mappings for a chosen Minecraft version and writes the custom `mappings.json` format. The committed `mappings.json` is ~18 MB. `java_mappings.json` is a small hand-written supplement for `java.*` classes, merged in at load time.
+`conversion.py` downloads official Mojang mappings for a chosen **obfuscated** Minecraft version (≤ 1.21.11) and writes the custom `mappings.json` format. The committed `mappings.json` is ~18 MB. `java_mappings.json` is a small hand-written supplement for `java.*` classes, merged in at load time. Unobfuscated versions (26.1+) need none of this — they go through the reflected mapping path. The 26.1 runtime requires JDK 25.
 
 ## Logs
 
