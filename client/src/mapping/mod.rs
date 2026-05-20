@@ -663,3 +663,62 @@ fn parse_return_type(signature: &str) -> ReturnType {
         _ => ReturnType::Primitive(Primitive::Void),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn arg_count_counts_primitives_and_objects() {
+        assert_eq!(signature_arg_count("()V"), 0);
+        assert_eq!(signature_arg_count("(I)V"), 1);
+        assert_eq!(signature_arg_count("(ILjava/lang/String;F)V"), 3);
+        assert_eq!(signature_arg_count("([ILjava/lang/String;)V"), 2);
+    }
+
+    #[test]
+    fn arg_count_of_an_unparseable_signature_never_matches() {
+        assert_eq!(signature_arg_count("garbage"), usize::MAX);
+    }
+
+    #[test]
+    fn return_type_is_parsed_from_the_descriptor() {
+        assert!(matches!(
+            parse_return_type("()V"),
+            ReturnType::Primitive(Primitive::Void)
+        ));
+        assert!(matches!(
+            parse_return_type("(I)I"),
+            ReturnType::Primitive(Primitive::Int)
+        ));
+        assert!(matches!(
+            parse_return_type("()Z"),
+            ReturnType::Primitive(Primitive::Boolean)
+        ));
+        assert!(matches!(
+            parse_return_type("()Ljava/lang/String;"),
+            ReturnType::Object
+        ));
+        assert!(matches!(parse_return_type("()[I"), ReturnType::Array));
+    }
+
+    #[test]
+    fn primitive_field_types_produce_jni_signatures() {
+        assert_eq!(FieldType::Boolean.get_signature().unwrap(), "Z");
+        assert_eq!(FieldType::Int.get_signature().unwrap(), "I");
+        assert_eq!(FieldType::Long.get_signature().unwrap(), "J");
+        assert_eq!(FieldType::Double.get_signature().unwrap(), "D");
+        assert_eq!(
+            FieldType::String.get_signature().unwrap(),
+            "Ljava/lang/String;"
+        );
+    }
+
+    #[test]
+    fn the_bundled_java_mappings_supplement_parses() {
+        let java: HashMap<String, MinecraftClass> =
+            serde_json::from_str(include_str!("../../../java_mappings.json"))
+                .expect("java_mappings.json must be valid");
+        assert!(!java.is_empty());
+    }
+}

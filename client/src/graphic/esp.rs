@@ -1183,3 +1183,56 @@ fn draw_label(painter: &Painter, pos: Pos2, anchor: Align2, text: &str, color: C
     );
     painter.text(pos, anchor, text, font, color);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn v3(x: f64, y: f64, z: f64) -> V3 {
+        V3 { x, y, z }
+    }
+
+    #[test]
+    fn v3_length_and_dot() {
+        let a = v3(3.0, 4.0, 0.0);
+        assert_eq!(a.length(), 5.0);
+        assert_eq!(a.dot(a), 25.0);
+    }
+
+    #[test]
+    fn v3_cross_of_x_and_y_is_z() {
+        let z = v3(1.0, 0.0, 0.0).cross(v3(0.0, 1.0, 0.0));
+        assert!(z.sub(v3(0.0, 0.0, 1.0)).length() < 1e-9);
+    }
+
+    #[test]
+    fn v3_lerp_finds_the_midpoint() {
+        let m = v3(0.0, 0.0, 0.0).lerp(v3(10.0, 20.0, -4.0), 0.5);
+        assert_eq!((m.x, m.y, m.z), (5.0, 10.0, -2.0));
+    }
+
+    #[test]
+    fn a_point_dead_ahead_projects_to_the_screen_centre() {
+        // Camera at the origin, yaw/pitch 0 -> looking toward +Z.
+        let view = build_view(v3(0.0, 0.0, 0.0), 0.0, 0.0, 70.0, 1920.0, 1080.0);
+        let projected = view
+            .project(v3(0.0, 0.0, 10.0))
+            .expect("a point straight ahead must project");
+        assert!((projected.x - 960.0).abs() < 1.0);
+        assert!((projected.y - 540.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn a_point_behind_the_camera_does_not_project() {
+        let view = build_view(v3(0.0, 0.0, 0.0), 0.0, 0.0, 70.0, 1920.0, 1080.0);
+        assert!(view.project(v3(0.0, 0.0, -10.0)).is_none());
+    }
+
+    #[test]
+    fn box_corners_span_min_to_max() {
+        let corners = box_corners(v3(0.0, 0.0, 0.0), v3(1.0, 2.0, 3.0));
+        assert_eq!(corners.len(), 8);
+        assert_eq!((corners[0].x, corners[0].y, corners[0].z), (0.0, 0.0, 0.0));
+        assert_eq!((corners[6].x, corners[6].y, corners[6].z), (1.0, 2.0, 3.0));
+    }
+}

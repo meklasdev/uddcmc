@@ -61,3 +61,52 @@ impl Command {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn reload_round_trips() {
+        let command = Command::Reload(PathBuf::from("/tmp/libclient.so"));
+        let wire = command.encode();
+        assert_eq!(wire, "reload /tmp/libclient.so");
+        assert_eq!(Command::decode(&wire), Ok(command));
+    }
+
+    #[test]
+    fn reload_path_with_spaces_survives_the_round_trip() {
+        let command = Command::Reload(PathBuf::from("/home/My Games/libclient.so"));
+        assert_eq!(Command::decode(&command.encode()), Ok(command));
+    }
+
+    #[test]
+    fn decode_ignores_surrounding_whitespace() {
+        assert_eq!(
+            Command::decode("  reload /a/b.so\n"),
+            Ok(Command::Reload(PathBuf::from("/a/b.so"))),
+        );
+    }
+
+    #[test]
+    fn an_empty_line_is_rejected() {
+        assert_eq!(Command::decode("   "), Err(ProtocolError::Empty));
+    }
+
+    #[test]
+    fn reload_without_an_argument_is_rejected() {
+        assert_eq!(
+            Command::decode("reload"),
+            Err(ProtocolError::MissingArgument { verb: "reload" }),
+        );
+    }
+
+    #[test]
+    fn an_unknown_verb_is_rejected() {
+        assert_eq!(
+            Command::decode("frobnicate x"),
+            Err(ProtocolError::UnknownVerb("frobnicate".to_string())),
+        );
+    }
+}

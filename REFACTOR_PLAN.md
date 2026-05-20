@@ -320,11 +320,12 @@ Each phase = one commit, compiles, behavior unchanged (except Phase 5).
   world — completes the menu-injection fix.
 - ✅ `cargo check -p client`.
 
-### Phase 8 — client: graphic split + platform seam
-- Split `esp.rs` into `graphic/esp/{math,gather,render,mod}.rs`.
-- `graphic/platform/` with `FrameHook` / `GlLoader` traits + `linux/windows`
-  impls + `macos` stub.
-- ✅ `cargo check -p client`.
+### Phase 8 — client: graphic platform seam
+- `graphic/platform/` (`mod` + `linux` / `windows` / `macos`) exposing
+  `gl_proc_address`, `open_glfw_library`, `frame_hook_targets`.
+- `esp.rs` split **dropped** — it is already cleanly sectioned; splitting it
+  is cosmetic churn on working render code (user decision).
+- ✅ `cargo check -p client` + `cargo test -p client`.
 
 ### Phase 9 — T1: pure unit tests (no JVM)
 - `protocol`: `Command` encode/decode round-trip.

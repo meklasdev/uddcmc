@@ -69,3 +69,65 @@ fn extract_version(args: &[String]) -> Option<String> {
     let idx = args.iter().position(|a| a == "--version")?;
     args.get(idx + 1).cloned()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn a_plain_java_minecraft_process_is_detected() {
+        assert!(classify(
+            "java",
+            &args(&["-cp", "minecraft.jar", "net.minecraft.client.main.Main"]),
+        )
+        .is_some());
+    }
+
+    #[test]
+    fn the_windows_javaw_exe_is_detected() {
+        assert!(classify(
+            "javaw.exe",
+            &args(&["-Xmx2G", "minecraft", "--gameDir", "."])
+        )
+        .is_some());
+    }
+
+    #[test]
+    fn the_java_binary_match_is_case_insensitive() {
+        assert!(classify("JavaW", &args(&["net.minecraft.client"])).is_some());
+    }
+
+    #[test]
+    fn the_minecraft_keyword_match_is_case_insensitive() {
+        assert!(classify("java", &args(&["-jar", "MINECRAFT.jar"])).is_some());
+    }
+
+    #[test]
+    fn a_non_java_process_is_ignored() {
+        assert!(classify("python", &args(&["minecraft_server.py"])).is_none());
+    }
+
+    #[test]
+    fn a_java_process_without_minecraft_is_ignored() {
+        assert!(classify("java", &args(&["-jar", "build-tools.jar"])).is_none());
+    }
+
+    #[test]
+    fn the_version_is_extracted_when_the_flag_is_present() {
+        let label = classify(
+            "java",
+            &args(&["--version", "1.21.4", "-cp", "minecraft.jar"]),
+        );
+        assert_eq!(label, Some("1.21.4".to_string()));
+    }
+
+    #[test]
+    fn a_generic_label_is_used_without_a_version_flag() {
+        let label = classify("java", &args(&["-cp", "minecraft.jar"]));
+        assert_eq!(label, Some("Minecraft instance".to_string()));
+    }
+}

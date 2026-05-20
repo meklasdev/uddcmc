@@ -596,4 +596,50 @@ mod tests {
             SignatureMatch::Incompatible
         );
     }
+
+    #[test]
+    fn methods_deserialize_from_a_single_object_or_an_array() {
+        let json = r#"{
+            "name": "Obf",
+            "methods": {
+                "single": { "name": "a", "signature": "()V" },
+                "many": [
+                    { "name": "b", "signature": "(I)V" },
+                    { "name": "b", "signature": "(F)V" }
+                ]
+            },
+            "fields": {}
+        }"#;
+        let class: MinecraftClass = serde_json::from_str(json).unwrap();
+        assert_eq!(class.get_methods("single").unwrap().len(), 1);
+        assert_eq!(class.get_methods("many").unwrap().len(), 2);
+    }
+
+    #[test]
+    fn overload_resolution_prefers_an_exact_primitive_match() {
+        let mut methods = HashMap::new();
+        methods.insert(
+            "foo".to_string(),
+            vec![
+                Method {
+                    name: "foo".into(),
+                    signature: "(D)V".into(),
+                    id: OnceLock::new(),
+                },
+                Method {
+                    name: "foo".into(),
+                    signature: "(I)V".into(),
+                    id: OnceLock::new(),
+                },
+            ],
+        );
+        let class = MinecraftClass {
+            name: "T".into(),
+            methods,
+            fields: HashMap::new(),
+        };
+
+        let chosen = class.get_method_by_args("foo", &[JValue::Int(7)]).unwrap();
+        assert_eq!(chosen.signature, "(I)V");
+    }
 }
