@@ -1,15 +1,15 @@
 //! Wrapper for Minecraft's `BlockEntity` (chests, barrels, …).
 
 use crate::mapping::math::BlockPos;
-use crate::mapping::{JavaObject, MinecraftClassType};
+use crate::mapping::{MappedObject, MinecraftClassType};
 use crate::state::mapping;
 use jni::objects::GlobalRef;
-use std::ops::Deref;
 
 /// A Minecraft `BlockEntity`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, MappedObject)]
+#[mapped(class = BlockEntity)]
 pub struct BlockEntity {
-    pub jni_ref: GlobalRef,
+    jni_ref: GlobalRef,
 }
 
 impl BlockEntity {
@@ -20,15 +20,8 @@ impl BlockEntity {
 
     /// The block position this block entity occupies.
     pub fn get_block_pos(&self) -> anyhow::Result<BlockPos> {
-        mapping().in_frame(|| {
-            let pos = mapping()
-                .call_method(
-                    MinecraftClassType::BlockEntity,
-                    self.jni_ref.as_obj(),
-                    "getBlockPos",
-                    &[],
-                )?
-                .l()?;
+        self.in_frame(|| {
+            let pos = self.call_method("getBlockPos", &[])?.l()?;
             BlockPos::read(&pos)
         })
     }
@@ -42,32 +35,13 @@ impl BlockEntity {
             MinecraftClassType::BarrelBlockEntity,
             MinecraftClassType::ShulkerBoxBlockEntity,
         ];
-        mapping()
-            .in_frame(|| {
-                Ok(KINDS.iter().any(|&kind| {
-                    mapping()
-                        .is_instance_of(kind, self.jni_ref.as_obj())
-                        .unwrap_or(false)
-                }))
-            })
-            .unwrap_or(false)
-    }
-}
-
-impl JavaObject for BlockEntity {
-    fn jni_ref(&self) -> &GlobalRef {
-        &self.jni_ref
-    }
-
-    fn class_type() -> MinecraftClassType {
-        MinecraftClassType::BlockEntity
-    }
-}
-
-impl Deref for BlockEntity {
-    type Target = GlobalRef;
-
-    fn deref(&self) -> &Self::Target {
-        &self.jni_ref
+        self.in_frame(|| {
+            Ok(KINDS.iter().any(|&kind| {
+                mapping()
+                    .is_instance_of(kind, self.jni_ref().as_obj())
+                    .unwrap_or(false)
+            }))
+        })
+        .unwrap_or(false)
     }
 }

@@ -1,6 +1,7 @@
 use crate::mapping::class::{Method, MethodHandle, MinecraftClass};
 pub use crate::mapping::class_type::MinecraftClassType;
-pub use crate::mapping::object::JavaObject;
+pub use crate::mapping::object::MappedObject;
+pub use mapping_derive::MappedObject;
 use crate::mapping::minecraft_version::MinecraftVersion;
 use dashmap::DashMap;
 use jni::objects::{GlobalRef, JClass, JMethodID, JObject, JString, JValue, JValueOwned};
@@ -208,6 +209,18 @@ impl Mapping {
     pub fn in_frame<T>(&self, f: impl FnOnce() -> anyhow::Result<T>) -> anyhow::Result<T> {
         let mut env = self.get_env()?;
         env.with_local_frame(16, |_| f())
+    }
+
+    /// Releases the JVM global references this mapping holds — every resolved
+    /// class handle and the captured game class loader. Called from
+    /// `cleanup_client` before the library is unloaded; afterwards lookups
+    /// would simply re-resolve lazily.
+    pub fn teardown(&self) {
+        self.classes.clear();
+        self.class_handles.clear();
+        if let Ok(mut loader) = self.class_loader.write() {
+            *loader = None;
+        }
     }
 
     pub fn get_version(&self) -> MinecraftVersion {

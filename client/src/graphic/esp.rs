@@ -23,7 +23,7 @@ use crate::mapping::entity::mob::Mob;
 use crate::mapping::entity::player::Player;
 use crate::mapping::entity::Entity;
 use crate::mapping::math::Vec3;
-use crate::mapping::JavaObject;
+use crate::mapping::MappedObject;
 use crate::module::ModuleSetting;
 use crate::state::{client, minecraft};
 use egui::{
@@ -638,10 +638,10 @@ fn read_name(entity: &Entity) -> String {
     }
 }
 
-/// Reads `(health, maxHealth)` for a living entity.
-fn read_health(entity: &Entity) -> anyhow::Result<(f32, f32)> {
-    let living = entity.as_living();
-    Ok((living.get_health()?, living.get_max_health()?))
+/// Reads `(health, maxHealth)`, or `None` if the entity is not living.
+fn read_health(entity: &Entity) -> Option<(f32, f32)> {
+    let living = entity.as_living()?;
+    Some((living.get_health().ok()?, living.get_max_health().ok()?))
 }
 
 /// Scans loaded chunks around the player for container block entities.

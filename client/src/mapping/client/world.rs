@@ -1,12 +1,12 @@
 use crate::mapping::block_entity::BlockEntity;
 use crate::mapping::entity::Entity;
 use crate::mapping::java::iterable::Iterable;
-use crate::mapping::{JavaObject, MinecraftClassType};
+use crate::mapping::{MappedObject, MinecraftClassType};
 use crate::state::mapping;
 use jni::objects::{GlobalRef, JValue};
-use std::ops::Deref;
 
-#[derive(Debug)]
+#[derive(Debug, MappedObject)]
+#[mapped(class = Level)]
 pub struct World {
     jni_ref: GlobalRef,
 }
@@ -19,15 +19,8 @@ impl World {
 
     /// Every entity the client is currently rendering.
     pub fn get_entities(&self) -> anyhow::Result<Vec<Entity>> {
-        mapping().in_frame(|| {
-            let iterable_obj = mapping()
-                .call_method(
-                    MinecraftClassType::Level,
-                    self.jni_ref.as_obj(),
-                    "entitiesForRendering",
-                    &[],
-                )?
-                .l()?;
+        self.in_frame(|| {
+            let iterable_obj = self.call_method("entitiesForRendering", &[])?.l()?;
             let iterable = Iterable::new(mapping().new_global_ref(iterable_obj)?);
 
             let iterator = iterable.iterator()?;
@@ -42,14 +35,9 @@ impl World {
     /// The chunk at chunk-grid coordinates `(x, z)`, or `Ok(None)` when it is
     /// not loaded.
     pub fn get_chunk(&self, x: i32, z: i32) -> anyhow::Result<Option<LevelChunk>> {
-        mapping().in_frame(|| {
-            let chunk = mapping()
-                .call_method(
-                    MinecraftClassType::LevelReader,
-                    self.jni_ref.as_obj(),
-                    "getChunk",
-                    &[JValue::Int(x), JValue::Int(z)],
-                )?
+        self.in_frame(|| {
+            let chunk = self
+                .call_method("getChunk", &[JValue::Int(x), JValue::Int(z)])?
                 .l()?;
             if chunk.is_null() {
                 return Ok(None);
@@ -59,28 +47,11 @@ impl World {
     }
 }
 
-impl JavaObject for World {
-    fn jni_ref(&self) -> &GlobalRef {
-        &self.jni_ref
-    }
-
-    fn class_type() -> MinecraftClassType {
-        MinecraftClassType::Level
-    }
-}
-
-impl Deref for World {
-    type Target = GlobalRef;
-
-    fn deref(&self) -> &Self::Target {
-        &self.jni_ref
-    }
-}
-
 /// A loaded `LevelChunk`.
-#[derive(Debug)]
+#[derive(Debug, MappedObject)]
+#[mapped(class = LevelChunk)]
 pub struct LevelChunk {
-    pub jni_ref: GlobalRef,
+    jni_ref: GlobalRef,
 }
 
 impl LevelChunk {
@@ -91,15 +62,8 @@ impl LevelChunk {
 
     /// Every block entity currently in this chunk.
     pub fn get_block_entities(&self) -> anyhow::Result<Vec<BlockEntity>> {
-        mapping().in_frame(|| {
-            let map = mapping()
-                .call_method(
-                    MinecraftClassType::LevelChunk,
-                    self.jni_ref.as_obj(),
-                    "getBlockEntities",
-                    &[],
-                )?
-                .l()?;
+        self.in_frame(|| {
+            let map = self.call_method("getBlockEntities", &[])?.l()?;
             if map.is_null() {
                 return Ok(Vec::new());
             }
@@ -116,23 +80,5 @@ impl LevelChunk {
             }
             Ok(block_entities)
         })
-    }
-}
-
-impl JavaObject for LevelChunk {
-    fn jni_ref(&self) -> &GlobalRef {
-        &self.jni_ref
-    }
-
-    fn class_type() -> MinecraftClassType {
-        MinecraftClassType::LevelChunk
-    }
-}
-
-impl Deref for LevelChunk {
-    type Target = GlobalRef;
-
-    fn deref(&self) -> &Self::Target {
-        &self.jni_ref
     }
 }

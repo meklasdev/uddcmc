@@ -1,12 +1,12 @@
 use crate::mapping::java::iterator::Iterator;
-use crate::mapping::{JavaObject, MinecraftClassType};
+use crate::mapping::MappedObject;
 use crate::state::mapping;
 use jni::objects::GlobalRef;
-use std::ops::Deref;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, MappedObject)]
+#[mapped(class = Iterable)]
 pub struct Iterable {
-    pub jni_ref: GlobalRef,
+    jni_ref: GlobalRef,
 }
 
 impl Iterable {
@@ -16,34 +16,9 @@ impl Iterable {
     }
 
     pub fn iterator(&self) -> anyhow::Result<Iterator> {
-        mapping().in_frame(|| {
-            let iterator_obj = mapping()
-                .call_method(
-                    MinecraftClassType::Iterable,
-                    self.jni_ref.as_obj(),
-                    "iterator",
-                    &[],
-                )?
-                .l()?;
+        self.in_frame(|| {
+            let iterator_obj = self.call_method("iterator", &[])?.l()?;
             Ok(Iterator::new(mapping().new_global_ref(iterator_obj)?))
         })
-    }
-}
-
-impl JavaObject for Iterable {
-    fn jni_ref(&self) -> &GlobalRef {
-        &self.jni_ref
-    }
-
-    fn class_type() -> MinecraftClassType {
-        MinecraftClassType::Iterable
-    }
-}
-
-impl Deref for Iterable {
-    type Target = GlobalRef;
-
-    fn deref(&self) -> &Self::Target {
-        &self.jni_ref
     }
 }

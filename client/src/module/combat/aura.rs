@@ -1,7 +1,7 @@
 use crate::mapping::entity::mob::Mob;
 use crate::mapping::entity::player::Player;
 use crate::mapping::entity::Entity;
-use crate::mapping::JavaObject;
+use crate::mapping::MappedObject;
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleSetting};
 use crate::state::minecraft;
 

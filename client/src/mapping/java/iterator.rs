@@ -1,11 +1,11 @@
-use crate::mapping::{JavaObject, MinecraftClassType};
+use crate::mapping::MappedObject;
 use crate::state::mapping;
 use jni::objects::GlobalRef;
-use std::ops::Deref;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, MappedObject)]
+#[mapped(class = Iterator)]
 pub struct Iterator {
-    pub jni_ref: GlobalRef,
+    jni_ref: GlobalRef,
 }
 
 impl Iterator {
@@ -15,45 +15,13 @@ impl Iterator {
     }
 
     pub fn has_next(&self) -> anyhow::Result<bool> {
-        Ok(mapping()
-            .call_method(
-                MinecraftClassType::Iterator,
-                self.jni_ref.as_obj(),
-                "hasNext",
-                &[],
-            )?
-            .z()?)
+        Ok(self.call_method("hasNext", &[])?.z()?)
     }
 
     pub fn next(&self) -> anyhow::Result<GlobalRef> {
-        mapping().in_frame(|| {
-            let next_obj = mapping()
-                .call_method(
-                    MinecraftClassType::Iterator,
-                    self.jni_ref.as_obj(),
-                    "next",
-                    &[],
-                )?
-                .l()?;
+        self.in_frame(|| {
+            let next_obj = self.call_method("next", &[])?.l()?;
             mapping().new_global_ref(next_obj)
         })
-    }
-}
-
-impl JavaObject for Iterator {
-    fn jni_ref(&self) -> &GlobalRef {
-        &self.jni_ref
-    }
-
-    fn class_type() -> MinecraftClassType {
-        MinecraftClassType::Iterator
-    }
-}
-
-impl Deref for Iterator {
-    type Target = GlobalRef;
-
-    fn deref(&self) -> &Self::Target {
-        &self.jni_ref
     }
 }

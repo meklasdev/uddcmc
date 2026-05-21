@@ -84,6 +84,9 @@ pub extern "C" fn cleanup_client() {
     RUNNING.store(false, Ordering::SeqCst);
     uninstall_hooks();
     crate::graphic::input::cleanup();
+    // Hooks are gone and `RUNNING` is clear, so nothing else touches the
+    // global state — release the JVM references it holds before unload.
+    crate::state::teardown();
     info!("Client cleanup completed");
 }
 
