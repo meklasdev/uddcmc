@@ -1,6 +1,5 @@
-use crate::mapping::MinecraftClassType;
-use crate::module::combat::aura::BaseAura;
-use crate::module::{KeyboardKey, Module, ModuleData};
+use crate::module::combat::aura::{AuraTarget, BaseAura};
+use crate::module::{KeyboardKey, Module, ModuleData, ModuleId};
 
 #[derive(Debug)]
 pub struct MobAuraModule {
@@ -11,10 +10,10 @@ impl MobAuraModule {
     pub fn new() -> Self {
         Self {
             aura: BaseAura::new(
-                "MobAura".to_string(),
+                ModuleId::MobAura,
                 "Automatically attacks mobs".to_string(),
                 KeyboardKey::KeyY,
-                MinecraftClassType::Mob,
+                AuraTarget::Mobs,
             ),
         }
     }

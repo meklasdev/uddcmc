@@ -1,38 +1,69 @@
-use crate::mapping::FieldType;
-use crate::mapping::MinecraftClassType;
-use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleSetting};
-use crate::state::{mapping, minecraft};
-use jni::objects::JValue;
+use crate::mapping::entity::mob::Mob;
+use crate::mapping::entity::player::Player;
+use crate::mapping::MappedObject;
+use crate::module::combat::{look_at, pick_target};
+use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId, ModuleSetting};
+use crate::state::minecraft;
+use std::sync::Mutex;
 
 #[derive(Debug)]
 pub struct AimbotModule {
     pub module: ModuleData,
+    /// Network id of the locked target, if any.
+    target: Mutex<Option<i32>>,
 }
 
 impl AimbotModule {
     pub fn new() -> Self {
         Self {
             module: ModuleData {
-                name: "Aimbot".to_string(),
-                description: "Automatically aims at entities".to_string(),
+                id: ModuleId::Aimbot,
+                description: "Smoothly aims at the nearest entity".to_string(),
                 category: ModuleCategory::Combat,
                 key_bind: KeyboardKey::KeyC,
                 enabled: false,
-                settings: vec![ModuleSetting::Slider {
-                    name: "Range".to_string(),
-                    value: 4.0,
-                    min: 1.0,
-                    max: 6.0,
-                }],
+                settings: vec![
+                    ModuleSetting::Slider {
+                        name: "Range".to_string(),
+                        value: 4.0,
+                        min: 2.0,
+                        max: 8.0,
+                    },
+                    ModuleSetting::Slider {
+                        name: "FOV".to_string(),
+                        value: 100.0,
+                        min: 10.0,
+                        max: 180.0,
+                    },
+                    ModuleSetting::Slider {
+                        name: "Speed".to_string(),
+                        value: 7.0,
+                        min: 2.0,
+                        max: 20.0,
+                    },
+                ],
             },
+            target: Mutex::new(None),
         }
     }
 
-    pub fn get_range(&self) -> f32 {
+    fn slider(&self, name: &str, fallback: f32) -> f32 {
         self.module
-            .get_setting("Range")
-            .and_then(|s| s.get_slider_value())
-            .unwrap_or(4.0)
+            .get_setting(name)
+            .and_then(|setting| setting.get_slider_value())
+            .unwrap_or(fallback)
+    }
+
+    fn range(&self) -> f32 {
+        self.slider("Range", 4.0)
+    }
+
+    fn fov(&self) -> f32 {
+        self.slider("FOV", 100.0)
+    }
+
+    fn speed(&self) -> f32 {
+        self.slider("Speed", 7.0)
     }
 }
 
@@ -42,69 +73,44 @@ impl Module for AimbotModule {
     }
 
     fn on_stop(&self) -> anyhow::Result<()> {
+        *self.target.lock().unwrap() = None;
         Ok(())
     }
 
     fn on_tick(&self) -> anyhow::Result<()> {
         let minecraft = minecraft();
+        // Stand down while a menu (inventory, chest, crafting, chat, …) is open.
+        if minecraft.current_screen().is_open() {
+            return Ok(());
+        }
         let (Some(player), Some(world)) = (minecraft.player()?, minecraft.world()?) else {
+            *self.target.lock().unwrap() = None;
             return Ok(()); // not in a world — nothing to do
         };
 
         let entities = world.get_entities()?;
-        let range = self.get_range() as f64;
-        let mapping = mapping();
+        let eye = player.entity.get_eye_position()?;
+        let self_id = player.entity.id()?;
+        let range = self.range() as f64;
+        let locked = *self.target.lock().unwrap();
 
-        let player_pos = player.entity.get_position()?;
-        let mut closest_dist = range;
-        let mut target_entity = None;
-        let env = mapping.get_env()?;
+        let Some((target_id, target)) =
+            pick_target(&entities, eye, range * range, self_id, locked, |entity| {
+                entity.instance_of::<Player>() || entity.instance_of::<Mob>()
+            })
+        else {
+            *self.target.lock().unwrap() = None;
+            return Ok(());
+        };
 
-        for entity in entities {
-            if env.is_same_object(entity.jni_ref.as_obj(), player.entity.jni_ref.as_obj())? {
-                continue;
-            }
-
-            let entity_pos = entity.get_position()?;
-            let dist = ((player_pos.0 - entity_pos.0).powi(2)
-                + (player_pos.1 - entity_pos.1).powi(2)
-                + (player_pos.2 - entity_pos.2).powi(2))
-            .sqrt();
-
-            if dist <= closest_dist {
-                closest_dist = dist;
-                target_entity = Some(entity);
-            }
-        }
-
-        if let Some(target) = target_entity {
-            let target_pos = target.get_position()?;
-            let dx = target_pos.0 - player_pos.0;
-            let dy = target_pos.1 - player_pos.1; // This is simplistic, usually need eye height
-            let dz = target_pos.2 - player_pos.2;
-
-            let dist = (dx * dx + dz * dz).sqrt();
-            let yaw = (dz.atan2(dx) * 180.0 / std::f64::consts::PI) as f32 - 90.0;
-            let pitch = (-(dy.atan2(dist)) * 180.0 / std::f64::consts::PI) as f32;
-
-            // Set yaw
-            mapping.set_field(
-                MinecraftClassType::Entity,
-                player.entity.jni_ref.as_obj(),
-                "yRot",
-                FieldType::Float,
-                JValue::Float(yaw),
-            )?;
-
-            // Set pitch
-            mapping.set_field(
-                MinecraftClassType::Entity,
-                player.entity.jni_ref.as_obj(),
-                "xRot",
-                FieldType::Float,
-                JValue::Float(pitch),
-            )?;
-        }
+        let angle = look_at(&player, &target, self.speed(), self.fov())?;
+        // A returned angle past the FOV means the target was out of view and
+        // nothing was rotated — release the lock so a better one can be picked.
+        *self.target.lock().unwrap() = if angle > self.fov() {
+            None
+        } else {
+            Some(target_id)
+        };
 
         Ok(())
     }

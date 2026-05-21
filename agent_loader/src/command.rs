@@ -7,7 +7,7 @@ use std::time::Duration;
 use log::{error, info};
 use protocol::Command;
 
-use crate::library;
+use crate::{library, logging};
 
 /// Maximum time spent waiting for a command line before giving up.
 const READ_TIMEOUT: Duration = Duration::from_secs(5);
@@ -25,9 +25,20 @@ pub fn handle_connection(stream: TcpStream) {
     }
 
     match Command::decode(&line) {
-        Ok(Command::Reload(path)) => {
-            info!("reload command received: {}", path.display());
-            if let Err(e) = library::reload(&path) {
+        Ok(Command::Reload {
+            library,
+            config_dir,
+        }) => {
+            // The injector's working directory is where both this agent and
+            // the client keep their files — set up logging there (keeping
+            // `.minecraft` clean) and hand it to the client, loaded into this
+            // same process, through the environment.
+            if !config_dir.as_os_str().is_empty() {
+                logging::init(&config_dir);
+                std::env::set_var("DARK_CONFIG_DIR", &config_dir);
+            }
+            info!("reload command received: {}", library.display());
+            if let Err(e) = library::reload(&library) {
                 error!("reload failed: {e}");
             }
         }

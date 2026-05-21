@@ -32,6 +32,10 @@ pub struct MouseState {
     pub right_down: bool,
     pub left_clicked: bool,
     pub right_clicked: bool,
+    /// Scroll-wheel delta accumulated since the last frame; drained — and
+    /// reset — by the UI engine when it builds egui's input.
+    pub scroll_x: f32,
+    pub scroll_y: f32,
 }
 
 impl MouseState {
@@ -42,6 +46,8 @@ impl MouseState {
         right_down: false,
         left_clicked: false,
         right_clicked: false,
+        scroll_x: 0.0,
+        scroll_y: 0.0,
     };
 }
 
@@ -52,6 +58,7 @@ const GLFW_PRESS: i32 = 1;
 const GLFW_MOUSE_BUTTON_LEFT: i32 = 0;
 const GLFW_MOUSE_BUTTON_RIGHT: i32 = 1;
 const GLFW_KEY_RIGHT_SHIFT: i32 = 344;
+const GLFW_KEY_ESCAPE: i32 = 256;
 
 const GLFW_CURSOR: i32 = 0x0003_3001;
 const GLFW_CURSOR_NORMAL: i32 = 0x0003_4001;
@@ -62,11 +69,13 @@ const GLFW_CURSOR_DISABLED: i32 = 0x0003_4003;
 type MouseButtonFun = extern "C" fn(*mut c_void, i32, i32, i32);
 type CursorPosFun = extern "C" fn(*mut c_void, f64, f64);
 type KeyFun = extern "C" fn(*mut c_void, i32, i32, i32, i32);
+type ScrollFun = extern "C" fn(*mut c_void, f64, f64);
 
 type GetCurrentContext = extern "C" fn() -> *mut c_void;
 type SetMouseButtonCallback = extern "C" fn(*mut c_void, MouseButtonFun) -> *mut c_void;
 type SetCursorPosCallback = extern "C" fn(*mut c_void, CursorPosFun) -> *mut c_void;
 type SetKeyCallback = extern "C" fn(*mut c_void, KeyFun) -> *mut c_void;
+type SetScrollCallback = extern "C" fn(*mut c_void, ScrollFun) -> *mut c_void;
 type SetInputMode = extern "C" fn(*mut c_void, i32, i32);
 type SetCursorPos = extern "C" fn(*mut c_void, f64, f64);
 
@@ -81,6 +90,7 @@ struct GlfwHooks {
     original_mouse_button: *mut c_void,
     original_cursor_pos: *mut c_void,
     original_key: *mut c_void,
+    original_scroll: *mut c_void,
     set_input_mode: SetInputMode,
     set_cursor_pos: SetCursorPos,
 }
@@ -169,12 +179,19 @@ extern "C" fn on_key(window: *mut c_void, key: i32, scancode: i32, action: i32, 
         LAST_KEY_PRESSED.store(key, Ordering::Relaxed);
     }
 
-    if key == GLFW_KEY_RIGHT_SHIFT && action == GLFW_PRESS {
+    let gui_was_open = GUI_OPEN.load(Ordering::Relaxed);
+
+    // Right Shift toggles the GUI; ESC also closes it while it is open.
+    if action == GLFW_PRESS
+        && (key == GLFW_KEY_RIGHT_SHIFT || (key == GLFW_KEY_ESCAPE && gui_was_open))
+    {
         toggle_gui();
     }
 
-    // While the GUI is open, swallow the event instead of forwarding it.
-    if GUI_OPEN.load(Ordering::Relaxed) {
+    // Swallow the event — instead of forwarding it — whenever the GUI is open,
+    // or was open until this very keystroke closed it (so ESC closing the GUI
+    // does not also reach Minecraft and open its pause menu).
+    if gui_was_open || GUI_OPEN.load(Ordering::Relaxed) {
         return;
     }
 
@@ -190,10 +207,34 @@ extern "C" fn on_key(window: *mut c_void, key: i32, scancode: i32, action: i32, 
     }
 }
 
+extern "C" fn on_scroll(window: *mut c_void, x_offset: f64, y_offset: f64) {
+    // While the GUI is open, feed the wheel to egui and swallow it — otherwise
+    // it would also reach Minecraft and change the selected hotbar slot.
+    if GUI_OPEN.load(Ordering::Relaxed) {
+        if let Ok(mut state) = MOUSE_STATE.lock() {
+            state.scroll_x += x_offset as f32;
+            state.scroll_y += y_offset as f32;
+        }
+        return;
+    }
+
+    if let Some(hooks) = HOOKS.get() {
+        if !hooks.original_scroll.is_null() {
+            let original: ScrollFun = unsafe { std::mem::transmute(hooks.original_scroll) };
+            original(window, x_offset, y_offset);
+        }
+    }
+}
+
 /// Toggles the overlay GUI and the matching cursor-capture mode.
 fn toggle_gui() {
     // `fetch_xor` returns the previous value; the new state is its negation.
     let open = !GUI_OPEN.fetch_xor(true, Ordering::Relaxed);
+
+    // Persist anything the user changed in the menu before it closes.
+    if !open {
+        crate::config::save();
+    }
 
     let Some(hooks) = HOOKS.get() else {
         return;
@@ -205,9 +246,14 @@ fn toggle_gui() {
     if open {
         // GUI open: release the cursor.
         (hooks.set_input_mode)(hooks.window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+    } else if minecraft_screen_open() {
+        // GUI closed onto an open Minecraft screen (chat, inventory, menu, …):
+        // leave the cursor free, since that screen still needs it.
+        (hooks.set_input_mode)(hooks.window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
     } else {
-        // GUI closed: restore the cursor where Minecraft last had it, then
-        // re-capture it — this avoids a camera jump on the next mouse move.
+        // GUI closed back into the world: restore the cursor where Minecraft
+        // last had it, then re-capture it — avoids a camera jump on the next
+        // mouse move.
         let (lock_x, lock_y) = cursor_lock();
         (hooks.set_cursor_pos)(hooks.window, lock_x, lock_y);
         (hooks.set_input_mode)(hooks.window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
@@ -221,6 +267,7 @@ fn handle_module_keybind(key: i32) {
         return;
     }
 
+    let mut changed = false;
     for handle in client().modules.handles() {
         let Ok(mut module) = handle.lock() else {
             continue;
@@ -232,7 +279,7 @@ fn handle_module_keybind(key: i32) {
         let enabled = !module.get_module_data().enabled;
         info!(
             "{} {}",
-            module.get_module_data().name,
+            module.get_module_data().name(),
             if enabled { "enabled" } else { "disabled" }
         );
         if enabled {
@@ -241,6 +288,12 @@ fn handle_module_keybind(key: i32) {
             let _ = module.on_stop();
         }
         module.get_module_data_mut().set_enabled(enabled);
+        changed = true;
+    }
+
+    // Persist the new enabled state.
+    if changed {
+        crate::config::save();
     }
 }
 
@@ -274,6 +327,9 @@ fn install_glfw_hooks() -> Option<GlfwHooks> {
             .get::<SetCursorPosCallback>(b"glfwSetCursorPosCallback")
             .ok()?;
         let set_key = *library.get::<SetKeyCallback>(b"glfwSetKeyCallback").ok()?;
+        let set_scroll = *library
+            .get::<SetScrollCallback>(b"glfwSetScrollCallback")
+            .ok()?;
         let set_input_mode = *library.get::<SetInputMode>(b"glfwSetInputMode").ok()?;
         let set_cursor_pos = *library.get::<SetCursorPos>(b"glfwSetCursorPos").ok()?;
 
@@ -287,6 +343,7 @@ fn install_glfw_hooks() -> Option<GlfwHooks> {
         let original_mouse_button = set_mouse_button(window, on_mouse_button);
         let original_cursor_pos = set_cursor_pos_cb(window, on_cursor_pos);
         let original_key = set_key(window, on_key);
+        let original_scroll = set_scroll(window, on_scroll);
 
         // If the GUI was toggled on before hooks existed, release the cursor.
         if GUI_OPEN.load(Ordering::Relaxed) {
@@ -299,6 +356,7 @@ fn install_glfw_hooks() -> Option<GlfwHooks> {
             original_mouse_button,
             original_cursor_pos,
             original_key,
+            original_scroll,
             set_input_mode,
             set_cursor_pos,
         })
@@ -316,10 +374,11 @@ pub fn cleanup() {
     }
 
     type RestoreCallback = extern "C" fn(*mut c_void, *mut c_void) -> *mut c_void;
-    let restorations: [(&[u8], *mut c_void); 3] = [
+    let restorations: [(&[u8], *mut c_void); 4] = [
         (b"glfwSetMouseButtonCallback", hooks.original_mouse_button),
         (b"glfwSetCursorPosCallback", hooks.original_cursor_pos),
         (b"glfwSetKeyCallback", hooks.original_key),
+        (b"glfwSetScrollCallback", hooks.original_scroll),
     ];
     unsafe {
         for (name, original) in restorations {
@@ -329,7 +388,22 @@ pub fn cleanup() {
         }
     }
 
-    // Leave Minecraft with its cursor captured, as it expects in-world.
-    (hooks.set_input_mode)(hooks.window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    // Restore the cursor to the mode Minecraft itself wants right now: visible
+    // while one of its screens (chat, inventory, menu, …) is open, captured
+    // when in-world. Forcing it captured would hide the cursor after a Panic
+    // triggered from inside a menu.
+    let cursor_mode = if minecraft_screen_open() {
+        GLFW_CURSOR_NORMAL
+    } else {
+        GLFW_CURSOR_DISABLED
+    };
+    (hooks.set_input_mode)(hooks.window, GLFW_CURSOR, cursor_mode);
     info!("GLFW input callbacks restored.");
+}
+
+/// Whether Minecraft has one of its own screens open — meaning the cursor
+/// should be visible. Best-effort: a JNI failure resolves to "screen open",
+/// so the safer, recoverable outcome (a visible cursor) wins.
+fn minecraft_screen_open() -> bool {
+    !minecraft().current_screen_is_null()
 }

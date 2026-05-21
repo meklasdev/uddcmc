@@ -94,7 +94,7 @@ fn draw_arraylist(ctx: &Context, painter: &Painter) {
         .filter_map(|m| {
             let module = m.lock().ok()?;
             let data = module.get_module_data();
-            Some((data.name.clone(), data.enabled))
+            Some((data.name().to_string(), data.enabled))
         })
         .collect();
 

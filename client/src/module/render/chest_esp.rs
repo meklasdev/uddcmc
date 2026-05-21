@@ -1,4 +1,4 @@
-use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleSetting};
+use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId, ModuleSetting};
 
 /// Highlights containers — chests, trapped chests, ender chests, barrels and
 /// shulker boxes — with a 3D wireframe box.
@@ -14,7 +14,7 @@ impl ChestEspModule {
     pub fn new() -> Self {
         Self {
             module: ModuleData {
-                name: "Chest ESP".to_string(),
+                id: ModuleId::ChestEsp,
                 description: "Draws a 3D box around containers".to_string(),
                 category: ModuleCategory::Render,
                 key_bind: KeyboardKey::KeyNone,

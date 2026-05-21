@@ -9,7 +9,7 @@ use crate::graphic::anim::{self, Easing, SpringCfg};
 use crate::graphic::input::LAST_KEY_PRESSED;
 use crate::graphic::notification::{Notification, NotificationType};
 use crate::graphic::theme;
-use crate::module::{KeyboardKey, ModuleCategory, ModuleData, ModuleSetting, ModuleType};
+use crate::module::{KeyboardKey, ModuleCategory, ModuleData, ModuleId, ModuleSetting, ModuleType};
 use egui::{
     Align, Align2, Button, Color32, Context, FontId, Id, LayerId, Layout, Margin, Order, Painter,
     Pos2, Rect, RichText, Rounding, Sense, Shape, Stroke, Ui, Vec2,
@@ -35,24 +35,23 @@ const ORIGIN_Y: f32 = 58.0;
 /// A shared handle to one module.
 type ModuleArc = Arc<Mutex<ModuleType>>;
 /// The whole module registry, as borrowed from the read guard.
-type ModuleMap = HashMap<String, ModuleArc>;
+type ModuleMap = HashMap<ModuleId, ModuleArc>;
 
 /// Draws the entire ClickGUI. `progress` is the 0..1 open animation factor.
 pub fn draw(ctx: &Context, progress: f32) {
     draw_backdrop(ctx, progress);
 
-    let registry = crate::state::client().modules.by_name();
+    let registry = crate::state::client().modules.by_id();
 
     // Single lock per module: collect the data layout needs, nothing more.
-    let mut entries: Vec<(String, ModuleCategory)> = registry
-        .values()
-        .map(|arc| {
+    let mut entries: Vec<(ModuleId, ModuleCategory)> = registry
+        .iter()
+        .map(|(id, arc)| {
             let module = arc.lock().unwrap();
-            let data = module.get_module_data();
-            (data.name.clone(), data.category)
+            (*id, module.get_module_data().category)
         })
         .collect();
-    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    entries.sort_by_key(|(id, _)| id.display_name());
 
     draw_toolbar(ctx, progress);
 
@@ -71,7 +70,11 @@ pub fn draw(ctx: &Context, progress: f32) {
         let members: Vec<(String, &ModuleArc)> = entries
             .iter()
             .filter(|(_, cat)| *cat == category)
-            .filter_map(|(name, _)| registry.get(name).map(|arc| (name.clone(), arc)))
+            .filter_map(|(id, _)| {
+                registry
+                    .get(id)
+                    .map(|arc| (id.display_name().to_string(), arc))
+            })
             .collect();
         if members.is_empty() {
             continue;
@@ -132,13 +135,30 @@ fn draw_toolbar(ctx: &Context, progress: f32) {
                         }
 
                         ui.add_space(6.0);
-                        let reset =
-                            Button::new(RichText::new("Reset").size(12.5).color(theme::TEXT_DIM))
-                                .fill(theme::ELEVATED);
-                        if ui.add(reset).clicked() {
-                            // Drop stored panel targets — they spring back home.
+                        let reset_ui = Button::new(
+                            RichText::new("Reset UI").size(12.5).color(theme::TEXT_DIM),
+                        )
+                        .fill(theme::ELEVATED);
+                        if ui.add(reset_ui).clicked() {
+                            // Drop the saved layout — panels spring home,
+                            // modules collapse — then persist the reset.
                             ctx.memory_mut(|mem| mem.reset_areas());
                             ctx.data_mut(|data| data.clear());
+                            crate::config::reset_ui_state();
+                            crate::config::save();
+                        }
+
+                        ui.add_space(6.0);
+                        let reset_settings = Button::new(
+                            RichText::new("Reset Settings")
+                                .size(12.5)
+                                .color(theme::TEXT_DIM),
+                        )
+                        .fill(theme::ELEVATED);
+                        if ui.add(reset_settings).clicked() {
+                            // Restore factory defaults, then persist them.
+                            crate::state::client().modules.reset_settings();
+                            crate::config::save();
                         }
                     });
                 });
@@ -156,10 +176,12 @@ fn draw_panel(
 ) {
     let name = category.display_name();
 
-    // The drag target persists in egui's data store; the spring smooths the
-    // rendered position toward it, frame-rate independently.
-    let target_id = Id::new("panel_target").with(name);
-    let target = ctx.data_mut(|d| *d.get_temp_mut_or_insert_with(target_id, || slot));
+    // The panel's drag target lives in the config (persisted); the spring
+    // smooths the rendered position toward it, frame-rate independently. A
+    // panel the user has never moved sits at its auto-layout `slot`.
+    let target = crate::config::panel_pos(category)
+        .map(|p| Pos2::new(p[0], p[1]))
+        .unwrap_or(slot);
     let pos = anim::spring_pos(
         ctx,
         Id::new("panel_pos").with(name),
@@ -181,26 +203,62 @@ fn draw_panel(
                 .rounding(Rounding::same(theme::RADIUS))
                 .shadow(ui.style().visuals.window_shadow)
                 .show(ui, |ui| {
+                    // All sizing constraints first: `set_max_*` re-anchors the
+                    // layout cursor, so anything drawn beforehand would be
+                    // overwritten at the panel's top edge.
                     ui.set_min_width(PANEL_W);
                     ui.set_max_width(PANEL_W);
-                    draw_title_bar(ui, category, target_id);
-                    for (module_name, arc) in members {
-                        draw_module_row(ui, module_name, arc, registry);
-                    }
-                    ui.add_space(6.0);
+                    // Cap the panel at the window height. The ui is also given
+                    // room to grow into: an `Area` otherwise offers its content
+                    // only the previous frame's size, which would pin the
+                    // ScrollArea — and the panel — to its collapsed height. The
+                    // Frame still shrinks to the actual content.
+                    let max_rows_h =
+                        (ctx.screen_rect().height() - render_pos.y - TITLE_H - 16.0).max(ROW_H);
+                    ui.set_max_height(max_rows_h + TITLE_H + 8.0);
+
+                    draw_title_bar(ui, category);
+
+                    // Floating scroll bar, kept slim even when hovered —
+                    // egui's default expands it to an unsightly width.
+                    let mut scroll = egui::style::ScrollStyle::floating();
+                    scroll.bar_width = 5.0;
+                    ui.style_mut().spacing.scroll = scroll;
+                    // A floating handle borrows `active.fg_stroke` for its
+                    // colour; tint that with the accent so a dragged bar shows
+                    // the brand colour instead of the theme's black.
+                    let active_fg = ui.visuals().widgets.active.fg_stroke.color;
+                    ui.visuals_mut().widgets.active.fg_stroke.color = theme::ACCENT;
+                    egui::ScrollArea::vertical()
+                        .id_salt(name)
+                        .max_height(max_rows_h)
+                        .auto_shrink([false, true])
+                        .drag_to_scroll(false)
+                        .show(ui, |ui| {
+                            // Restore the normal active foreground for the
+                            // panel's own widgets.
+                            ui.visuals_mut().widgets.active.fg_stroke.color = active_fg;
+                            ui.set_min_width(PANEL_W);
+                            ui.set_max_width(PANEL_W);
+                            for (module_name, arc) in members {
+                                draw_module_row(ui, module_name, arc, registry);
+                            }
+                            ui.add_space(6.0);
+                        });
                 });
         });
 }
 
 /// Draggable title bar with the category name and an accent underline.
-fn draw_title_bar(ui: &mut Ui, category: ModuleCategory, target_id: Id) {
+fn draw_title_bar(ui: &mut Ui, category: ModuleCategory) {
     let (rect, response) = ui.allocate_exact_size(Vec2::new(PANEL_W, TITLE_H), Sense::drag());
     if response.dragged() {
         let delta = ui.ctx().input(|i| i.pointer.delta());
-        ui.ctx().data_mut(|d| {
-            let current = d.get_temp::<Pos2>(target_id).unwrap_or(rect.min);
-            d.insert_temp(target_id, current + delta);
-        });
+        let current = crate::config::panel_pos(category)
+            .map(|p| Pos2::new(p[0], p[1]))
+            .unwrap_or(rect.min);
+        let next = current + delta;
+        crate::config::set_panel_pos(category, [next.x, next.y]);
     }
 
     let painter = ui.painter();
@@ -232,12 +290,25 @@ fn draw_title_bar(ui: &mut Ui, category: ModuleCategory, target_id: Id) {
 fn draw_module_row(ui: &mut Ui, name: &str, arc: &ModuleArc, registry: &ModuleMap) {
     let mut module = arc.lock().unwrap();
     let enabled = module.get_module_data().enabled;
-    let has_settings = !module.get_module_data().settings.is_empty();
+    let id = module.get_module_data().id;
 
     let (rect, response) = ui.allocate_exact_size(Vec2::new(PANEL_W, ROW_H), Sense::click());
     let arrow_zone = Rect::from_min_size(
         Pos2::new(rect.max.x - 24.0, rect.min.y),
         Vec2::new(24.0, ROW_H),
+    );
+    // The chevron is its own click target, layered over the row: clicking it
+    // expands the module, clicking anywhere else on the row toggles it.
+    let arrow_response = ui.interact(arrow_zone, Id::new("row_arrow").with(name), Sense::click());
+
+    // egui's CollapsingState animates the settings panel open and closed — a
+    // smooth, native slide. Its open flag is kept in the config (persisted),
+    // not in egui's own store.
+    let expanded = crate::config::is_expanded(id);
+    let mut collapse = egui::collapsing_header::CollapsingState::load_with_default_open(
+        ui.ctx(),
+        Id::new("row_collapse").with(name),
+        expanded,
     );
 
     let ctx = ui.ctx();
@@ -281,42 +352,38 @@ fn draw_module_row(ui: &mut Ui, name: &str, arc: &ModuleArc, registry: &ModuleMa
     }
 
     // --- interaction ---
-    let expand_id = Id::new("row_exp").with(name);
-    let mut expanded = ui.data(|d| d.get_temp::<bool>(expand_id).unwrap_or(false));
-
-    if response.clicked() || response.secondary_clicked() {
-        let pointer = response.interact_pointer_pos().unwrap_or(Pos2::ZERO);
-        let toggle_settings =
-            has_settings && (response.secondary_clicked() || arrow_zone.contains(pointer));
-        if toggle_settings {
-            expanded = !expanded;
-            ui.data_mut(|d| d.insert_temp(expand_id, expanded));
-        } else if response.clicked() {
-            let next = !enabled;
-            module.get_module_data_mut().set_enabled(next);
-            let _ = if next {
-                module.on_start()
-            } else {
-                module.on_stop()
-            };
-        }
+    // The chevron — or a right-click anywhere on the row — expands the module;
+    // a left-click on the rest of the row toggles it on/off.
+    if arrow_response.clicked() || response.secondary_clicked() {
+        crate::config::set_expanded(id, !expanded);
+    } else if response.clicked() {
+        let next = !enabled;
+        module.get_module_data_mut().set_enabled(next);
+        let _ = if next {
+            module.on_start()
+        } else {
+            module.on_stop()
+        };
     }
 
     // --- chevron + settings ---
-    if has_settings {
-        let expand = anim::toggle(ui.ctx(), expand_id, expanded, 0.2, Easing::InOut);
-        let hovered_arrow = arrow_zone.contains(ui.ctx().pointer_hover_pos().unwrap_or(Pos2::ZERO));
-        let chevron_color = if hovered_arrow {
-            theme::TEXT
-        } else {
-            theme::TEXT_MUTED
-        };
-        paint_chevron(ui.painter(), arrow_zone.center(), expand, chevron_color);
+    // Re-sync the CollapsingState to the persisted flag — it may have just
+    // flipped above, or been changed by a config load / "Reset UI".
+    collapse.set_open(crate::config::is_expanded(id));
+    let openness = collapse.openness(ui.ctx());
+    let chevron_color = if arrow_response.hovered() {
+        theme::TEXT
+    } else {
+        theme::TEXT_MUTED
+    };
+    paint_chevron(ui.painter(), arrow_zone.center(), openness, chevron_color);
 
-        if expand > 0.001 {
-            draw_settings(ui, module.get_module_data_mut(), expand, arc, registry);
-        }
-    }
+    // The body slides open/closed; `CollapsingState` clips it to the animated
+    // height, so the panel grows and shrinks smoothly.
+    collapse.show_body_unindented(ui, |ui| {
+        draw_settings(ui, module.get_module_data_mut(), arc, registry);
+    });
+    collapse.store(ui.ctx());
 }
 
 /// Draws a chevron that rotates from ▸ (collapsed) to ▾ (expanded).
@@ -337,18 +404,11 @@ fn paint_chevron(painter: &Painter, center: Pos2, open: f32, color: Color32) {
 }
 
 /// Renders the keybind row and every [`ModuleSetting`] of an expanded module.
-fn draw_settings(
-    ui: &mut Ui,
-    data: &mut ModuleData,
-    fade: f32,
-    arc: &ModuleArc,
-    registry: &ModuleMap,
-) {
+fn draw_settings(ui: &mut Ui, data: &mut ModuleData, arc: &ModuleArc, registry: &ModuleMap) {
     egui::Frame::none()
         .fill(theme::SURFACE)
         .inner_margin(Margin::symmetric(10.0, 8.0))
         .show(ui, |ui| {
-            ui.set_opacity(fade);
             ui.set_min_width(PANEL_W - 20.0);
             ui.set_max_width(PANEL_W - 20.0);
             ui.spacing_mut().item_spacing.y = 7.0;
@@ -420,7 +480,7 @@ fn keybind_row(ui: &mut Ui, data: &mut ModuleData, arc: &ModuleArc, registry: &M
     ui.horizontal(|ui| {
         ui.label(label("Bind"));
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let bind_id = Id::new("kb_listen").with(data.name.as_str());
+            let bind_id = Id::new("kb_listen").with(data.name());
             let listening = ui.data(|d| d.get_temp::<bool>(bind_id).unwrap_or(false));
 
             let caption = if listening {
@@ -474,7 +534,7 @@ fn capture_keybind(data: &mut ModuleData, arc: &ModuleArc, registry: &ModuleMap)
         }
         let owner = other.lock().unwrap();
         if owner.get_module_data().key_bind == key {
-            let owner_name = owner.get_module_data().name.clone();
+            let owner_name = owner.get_module_data().name().to_string();
             drop(owner);
             Notification::send(
                 NotificationType::Warning,

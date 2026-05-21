@@ -33,6 +33,21 @@ pub enum MinecraftClassType {
     Options,
     OptionInstance,
     Integer,
+    Double,
+    InteractionHand,
+    ChatScreen,
+    PauseScreen,
+    AbstractContainerScreen,
+    InventoryScreen,
+    CraftingScreen,
+    CreativeModeInventoryScreen,
+    // Network packets — the connection layer (`net/`) reads and rewrites these.
+    ServerboundMovePlayerPacket,
+    ServerboundMovePlayerPacketPos,
+    ServerboundMovePlayerPacketPosRot,
+    ServerboundMovePlayerPacketRot,
+    ServerboundMovePlayerPacketStatusOnly,
+    ClientboundSetEntityMotionPacket,
 }
 
 impl MinecraftClassType {
@@ -78,6 +93,40 @@ impl MinecraftClassType {
             MinecraftClassType::Options => "net/minecraft/client/Options",
             MinecraftClassType::OptionInstance => "net/minecraft/client/OptionInstance",
             MinecraftClassType::Integer => "java/lang/Integer",
+            MinecraftClassType::Double => "java/lang/Double",
+            MinecraftClassType::InteractionHand => "net/minecraft/world/InteractionHand",
+            MinecraftClassType::ChatScreen => "net/minecraft/client/gui/screens/ChatScreen",
+            MinecraftClassType::PauseScreen => "net/minecraft/client/gui/screens/PauseScreen",
+            MinecraftClassType::AbstractContainerScreen => {
+                "net/minecraft/client/gui/screens/inventory/AbstractContainerScreen"
+            }
+            MinecraftClassType::InventoryScreen => {
+                "net/minecraft/client/gui/screens/inventory/InventoryScreen"
+            }
+            MinecraftClassType::CraftingScreen => {
+                "net/minecraft/client/gui/screens/inventory/CraftingScreen"
+            }
+            MinecraftClassType::CreativeModeInventoryScreen => {
+                "net/minecraft/client/gui/screens/inventory/CreativeModeInventoryScreen"
+            }
+            MinecraftClassType::ServerboundMovePlayerPacket => {
+                "net/minecraft/network/protocol/game/ServerboundMovePlayerPacket"
+            }
+            MinecraftClassType::ServerboundMovePlayerPacketPos => {
+                "net/minecraft/network/protocol/game/ServerboundMovePlayerPacket$Pos"
+            }
+            MinecraftClassType::ServerboundMovePlayerPacketPosRot => {
+                "net/minecraft/network/protocol/game/ServerboundMovePlayerPacket$PosRot"
+            }
+            MinecraftClassType::ServerboundMovePlayerPacketRot => {
+                "net/minecraft/network/protocol/game/ServerboundMovePlayerPacket$Rot"
+            }
+            MinecraftClassType::ServerboundMovePlayerPacketStatusOnly => {
+                "net/minecraft/network/protocol/game/ServerboundMovePlayerPacket$StatusOnly"
+            }
+            MinecraftClassType::ClientboundSetEntityMotionPacket => {
+                "net/minecraft/network/protocol/game/ClientboundSetEntityMotionPacket"
+            }
         }
     }
 }

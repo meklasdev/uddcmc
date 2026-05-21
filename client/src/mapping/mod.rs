@@ -1,24 +1,30 @@
 use crate::mapping::class::{Method, MethodHandle, MinecraftClass};
 pub use crate::mapping::class_type::MinecraftClassType;
 use crate::mapping::minecraft_version::MinecraftVersion;
+pub use crate::mapping::object::MappedObject;
 use dashmap::DashMap;
 use jni::objects::{GlobalRef, JClass, JMethodID, JObject, JString, JValue, JValueOwned};
 use jni::signature::{Primitive, ReturnType};
 use jni::sys::{jsize, jvalue, JNI_GetCreatedJavaVMs, JNI_OK};
 use jni::{JNIEnv, JavaVM};
 use log::info;
+pub use mapping_derive::MappedObject;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
+pub mod block_entity;
 pub mod class;
 pub mod class_type;
 pub mod client;
+pub mod component;
 pub mod entity;
 pub mod java;
 mod loader;
+pub mod math;
 mod method;
 mod minecraft_version;
+pub mod object;
 mod reflect;
 
 #[cfg(test)]
@@ -196,6 +202,27 @@ impl Mapping {
         Ok(self.jvm.attach_current_thread_as_daemon()?)
     }
 
+    /// Runs `f` inside a fresh JNI local-reference frame: every local reference
+    /// `f` creates is released when it returns, while the value it yields (a
+    /// plain value or a `GlobalRef`-backed wrapper) survives. This lets each
+    /// wrapper method bound its own JNI garbage, so no caller manages frames.
+    pub fn in_frame<T>(&self, f: impl FnOnce() -> anyhow::Result<T>) -> anyhow::Result<T> {
+        let mut env = self.get_env()?;
+        env.with_local_frame(16, |_| f())
+    }
+
+    /// Releases the JVM global references this mapping holds — every resolved
+    /// class handle and the captured game class loader. Called from
+    /// `cleanup_client` before the library is unloaded; afterwards lookups
+    /// would simply re-resolve lazily.
+    pub fn teardown(&self) {
+        self.classes.clear();
+        self.class_handles.clear();
+        if let Ok(mut loader) = self.class_loader.write() {
+            *loader = None;
+        }
+    }
+
     pub fn get_version(&self) -> MinecraftVersion {
         self.version
     }
@@ -220,6 +247,12 @@ impl Mapping {
     /// The captured Minecraft class loader, if any — poison-safe.
     fn loader(&self) -> Option<GlobalRef> {
         self.class_loader.read().ok().and_then(|slot| slot.clone())
+    }
+
+    /// The captured game class loader — used to `DefineClass` new classes (the
+    /// Netty bridge handler) so they can see Minecraft and Netty types.
+    pub fn game_class_loader(&self) -> Option<GlobalRef> {
+        self.loader()
     }
 
     /// Resolves a JVM class by its JNI name, working from any thread.

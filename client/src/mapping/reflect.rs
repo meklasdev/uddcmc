@@ -24,7 +24,13 @@ pub fn reflect_class(mapping: &Mapping, class_name: &str) -> anyhow::Result<Mine
     // `getMethods` covers inherited public methods; `getDeclaredMethods`
     // covers everything declared on this class, public or not.
     for accessor in ["getMethods", "getDeclaredMethods"] {
-        collect_methods(&mut env, &jclass, accessor, &mut methods)?;
+        if let Err(error) = collect_methods(&mut env, &jclass, accessor, &mut methods) {
+            // Tolerate a class that does not fully enumerate (a method set
+            // referencing types this build cannot resolve): clear the pending
+            // JNI exception and keep whatever methods were collected.
+            let _ = env.exception_clear();
+            log::debug!("reflect: {accessor} on {class_name} did not fully enumerate: {error}");
+        }
     }
 
     Ok(MinecraftClass::from_reflection(
@@ -50,10 +56,20 @@ fn collect_methods(
     for index in 0..count {
         // Each method spawns several temporary JNI refs — scope them so the
         // local-reference table cannot overflow on large classes.
-        let (name, signature) = env.with_local_frame(64, |env| -> anyhow::Result<_> {
+        let described = env.with_local_frame(64, |env| -> anyhow::Result<(String, String)> {
             let method = env.get_object_array_element(&array, index)?;
             describe_method(env, &method)
-        })?;
+        });
+        let (name, signature) = match described {
+            Ok(method) => method,
+            // A method whose parameter / return types cannot be resolved at
+            // runtime — e.g. an overload referencing a class this build does
+            // not expose — is skipped. Clear the pending exception, move on.
+            Err(_) => {
+                let _ = env.exception_clear();
+                continue;
+            }
+        };
 
         let overloads = out.entry(name.clone()).or_default();
         if !overloads.iter().any(|m| m.signature == signature) {

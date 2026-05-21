@@ -103,6 +103,10 @@ pub fn apply(ctx: &Context) {
     style.spacing.interact_size.y = 16.0;
     style.spacing.slider_width = 100.0;
 
+    // A slightly longer animation than egui's default — the module settings
+    // panels slide open at this rate, and the brisk default feels abrupt.
+    style.animation_time = 0.18;
+
     ctx.set_style(style);
 }
 

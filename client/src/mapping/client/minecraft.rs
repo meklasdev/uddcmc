@@ -1,11 +1,13 @@
+use crate::mapping::client::game_renderer::GameRenderer;
 use crate::mapping::client::gamemode::MultiPlayerGameMode;
+use crate::mapping::client::options::Options;
+use crate::mapping::client::screen::Screen;
 use crate::mapping::client::window::Window;
 use crate::mapping::client::world::World;
 use crate::mapping::entity::player::LocalPlayer;
-use crate::mapping::{FieldType, MinecraftClassType};
+use crate::mapping::{FieldType, MappedObject, MinecraftClassType};
 use crate::state::mapping;
 use jni::objects::GlobalRef;
-use std::ops::Deref;
 use std::sync::RwLock;
 
 /// The running Minecraft client.
@@ -15,9 +17,10 @@ use std::sync::RwLock;
 /// objects — player, level, game mode — are null in the menu and on world
 /// exit, so they are fetched lazily and reported as `Ok(None)` when absent.
 /// This is what lets the client be injected from the main menu.
-#[derive(Debug)]
+#[derive(Debug, MappedObject)]
+#[mapped(class = Minecraft)]
 pub struct Minecraft {
-    pub jni_ref: GlobalRef,
+    jni_ref: GlobalRef,
     pub window: Window,
     /// Cached local player, refreshed when the underlying JVM object changes.
     player: RwLock<Option<LocalPlayer>>,
@@ -27,13 +30,15 @@ impl Minecraft {
     /// Builds the game wrapper from the live `Minecraft.getInstance()`.
     /// Succeeds whether or not a world is loaded.
     pub fn new() -> anyhow::Result<Minecraft> {
-        let minecraft = mapping()
-            .call_static_method(MinecraftClassType::Minecraft, "getInstance", &[])?
-            .l()?;
-        if minecraft.is_null() {
-            return Err(anyhow::anyhow!("Minecraft.getInstance() returned null"));
-        }
-        let jni_ref = mapping().new_global_ref(minecraft)?;
+        let jni_ref = mapping().in_frame(|| {
+            let minecraft = mapping()
+                .call_static_method(MinecraftClassType::Minecraft, "getInstance", &[])?
+                .l()?;
+            if minecraft.is_null() {
+                return Err(anyhow::anyhow!("Minecraft.getInstance() returned null"));
+            }
+            mapping().new_global_ref(minecraft)
+        })?;
         let window = Window::new(&jni_ref)?;
 
         Ok(Minecraft {
@@ -49,6 +54,11 @@ impl Minecraft {
     /// changes (a new world join produces a fresh instance).
     pub fn player(&self) -> anyhow::Result<Option<LocalPlayer>> {
         let Some(player_ref) = self.world_object("player", MinecraftClassType::LocalPlayer)? else {
+            // Left the world: drop the cached `LocalPlayer` so its JVM object
+            // is no longer pinned by a global reference until the next join.
+            if let Ok(mut cache) = self.player.write() {
+                *cache = None;
+            }
             return Ok(None);
         };
 
@@ -60,7 +70,7 @@ impl Minecraft {
             if let Some(cached) = cache.as_ref() {
                 if mapping()
                     .get_env()?
-                    .is_same_object(&cached.jni_ref, &player_ref)?
+                    .is_same_object(cached.jni_ref(), &player_ref)?
                 {
                     return Ok(Some(cached.clone()));
                 }
@@ -89,24 +99,80 @@ impl Minecraft {
             .map(MultiPlayerGameMode::new))
     }
 
+    /// The game renderer. Present from the main menu onward.
+    pub fn game_renderer(&self) -> anyhow::Result<GameRenderer> {
+        self.in_frame(|| {
+            let obj = self
+                .get_field(
+                    "gameRenderer",
+                    FieldType::Object(MinecraftClassType::GameRenderer),
+                )?
+                .l()?;
+            Ok(GameRenderer::new(mapping().new_global_ref(obj)?))
+        })
+    }
+
+    /// The game options. Present from the main menu onward.
+    pub fn options(&self) -> anyhow::Result<Options> {
+        self.in_frame(|| {
+            let obj = self
+                .get_field("options", FieldType::Object(MinecraftClassType::Options))?
+                .l()?;
+            Ok(Options::new(mapping().new_global_ref(obj)?))
+        })
+    }
+
     /// Whether a world is currently loaded.
     pub fn in_world(&self) -> bool {
         matches!(self.player(), Ok(Some(_)))
     }
 
+    /// Drops the cached local player — a held global reference. Called from
+    /// `cleanup_client` before the library is unloaded.
+    pub fn teardown(&self) {
+        if let Ok(mut cache) = self.player.write() {
+            *cache = None;
+        }
+    }
+
     /// Whether no screen (menu / inventory / …) is currently open.
     pub fn current_screen_is_null(&self) -> bool {
-        if let Ok(screen_obj) = mapping().get_field(
-            MinecraftClassType::Minecraft,
-            self.jni_ref.as_obj(),
-            "screen",
-            FieldType::Object(MinecraftClassType::Screen),
-        ) {
-            if let Ok(l) = screen_obj.l() {
-                return l.is_null();
+        self.current_screen() == Screen::None
+    }
+
+    /// The Minecraft screen currently open. Best-effort: any JNI failure — or
+    /// an unrecognized screen — reports [`Screen::Unknown`], which callers
+    /// treat as "a screen is open".
+    pub fn current_screen(&self) -> Screen {
+        self.in_frame(|| {
+            let screen = self
+                .get_field("screen", FieldType::Object(MinecraftClassType::Screen))?
+                .l()?;
+            if screen.is_null() {
+                return Ok(Screen::None);
             }
-        }
-        true
+
+            let is = |class| mapping().is_instance_of(class, &screen).unwrap_or(false);
+            // Specific screens first — `InventoryScreen` / `CraftingScreen`
+            // both extend `AbstractContainerScreen`.
+            let screen = if is(MinecraftClassType::ChatScreen) {
+                Screen::Chat
+            } else if is(MinecraftClassType::CreativeModeInventoryScreen)
+                || is(MinecraftClassType::InventoryScreen)
+            {
+                Screen::Inventory
+            } else if is(MinecraftClassType::CraftingScreen) {
+                Screen::Crafting
+            } else if is(MinecraftClassType::AbstractContainerScreen) {
+                Screen::Container
+            } else if is(MinecraftClassType::PauseScreen) {
+                Screen::Menu
+            } else {
+                Screen::Unknown
+            };
+            Ok(screen)
+        })
+        .unwrap_or(Screen::Unknown)
     }
 
     /// Reads a world-scoped object field of `Minecraft`, returning `Ok(None)`
@@ -116,25 +182,12 @@ impl Minecraft {
         field: &str,
         class: MinecraftClassType,
     ) -> anyhow::Result<Option<GlobalRef>> {
-        let obj = mapping()
-            .get_field(
-                MinecraftClassType::Minecraft,
-                self.jni_ref.as_obj(),
-                field,
-                FieldType::Object(class),
-            )?
-            .l()?;
-        if obj.is_null() {
-            return Ok(None);
-        }
-        Ok(Some(mapping().new_global_ref(obj)?))
-    }
-}
-
-impl Deref for Minecraft {
-    type Target = GlobalRef;
-
-    fn deref(&self) -> &Self::Target {
-        &self.jni_ref
+        self.in_frame(|| {
+            let obj = self.get_field(field, FieldType::Object(class))?.l()?;
+            if obj.is_null() {
+                return Ok(None);
+            }
+            Ok(Some(mapping().new_global_ref(obj)?))
+        })
     }
 }

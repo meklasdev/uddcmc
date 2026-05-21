@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 DarkClient is a Minecraft (Java Edition) modification framework written in Rust. It injects native libraries into a running Minecraft JVM and drives the game through JNI. One build supports both **obfuscated** Minecraft (≤ 1.21.11, via bundled Mojmap mappings) and **unobfuscated** Minecraft (26.1+, via runtime JNI reflection) — see the mapping system below.
 
-It is a Cargo workspace of four crates — `protocol`, `injector`, `agent_loader`, `client` — plus an `xtask` helper.
+It is a Cargo workspace of five crates — `protocol`, `injector`, `agent_loader`, `client`, `mapping_derive` — plus an `xtask` helper.
 
 ## Build & Common Commands
 
@@ -32,6 +32,7 @@ python conversion.py               # regenerate mappings.json (needs the `reques
 - **`injector/`** — standalone binary. A redesigned egui GUI (`gui/`); `--tui` for a crossterm TUI; `--list` / `--inject <pid>` headless modes. Discovers Minecraft processes, injects `agent_loader`, then drives the client. UI-agnostic core in `app.rs`; injection orchestration in `inject.rs`; the platform layer (`platform/`) is an `AgentInjector` trait with `linux` / `windows` / `macos` implementations.
 - **`agent_loader/`** — `cdylib` injected first. A `#[ctor]` runs on load. Split into focused modules: `logging`, `jvm` (discovery + health monitor), `server` (TCP accept loop), `command` (dispatch), `library` (client lifecycle), `platform` (signal handlers).
 - **`client/`** — `cdylib`, the actual mod framework. JNI-driven game interaction, OpenGL overlay, module system.
+- **`mapping_derive/`** — `proc-macro` crate. Provides `#[derive(MappedObject)]` for the JVM-object wrappers in `client` (see *Game wrappers* below).
 - **`xtask/`** — workspace task runner; `cargo xtask e2e` is the manual Tier-3 test.
 
 ## Injection & Hot-Reload Flow
@@ -40,7 +41,7 @@ This is the core control flow and spans `injector`, `protocol`, `agent_loader`, 
 
 1. `injector` injects `libagent_loader.so`/`.dll` into the JVM process — ptrace (`ptrace-inject`) on Linux, `dll-syringe` on Windows.
 2. `agent_loader`'s `#[ctor]` `agent_onload()` starts a TCP server on `protocol::SOCKET_ADDR` (**`127.0.0.1:7878`** — defined once, in `protocol`).
-3. `injector` connects and sends a `protocol::Command::Reload(<absolute-path-to-libclient>)`.
+3. `injector` connects and sends a `protocol::Command::Reload { library, config_dir }` — the absolute libclient path plus the injector's own working directory. The agent loader exports `config_dir` as the `DARK_CONFIG_DIR` env var so the client knows where to keep its config.
 4. `agent_loader`'s `library` module copies the library to a uniquely named temp file (avoids file locks), `dlopen`s it, and calls the exported `initialize_client`.
 5. Re-injecting repeats step 3 → `library::reload` cleans up and drops the old library (calling `cleanup_client`) before loading the new one. This is the hot-reload path.
 
@@ -52,11 +53,13 @@ This is the core control flow and spans `injector`, `protocol`, `agent_loader`, 
 
 **Rendering & ticking** (`graphic/hook.rs`): `install_hooks` hooks the buffer-swap function (`glfwSwapBuffers` / `wglSwapBuffers`, via `ilhook`) so `on_frame` runs every frame — it renders the egui overlay (`ui_engine.rs`) and calls `check_tick`. `check_tick` compares the player's tick count to detect new game ticks and calls `client().modules.tick()`. Tick logic runs on the render thread, not a Minecraft thread. Per-platform GL / hook details live behind `graphic/platform/` (`gl_proc_address`, `open_glfw_library`, `frame_hook_targets`).
 
-**Input** (`graphic/input.rs`): swaps GLFW key/mouse/cursor callbacks. **Right Shift** (key `344`) toggles the GUI; while the GUI is open, input events are consumed instead of forwarded to Minecraft. Module keybinds toggle modules on key press.
+**Input** (`graphic/input.rs`): swaps GLFW key/mouse/cursor/scroll callbacks. **Right Shift** (key `344`) toggles the GUI, **Esc** closes it; while the GUI is open, input events (including the scroll wheel, which is forwarded to egui instead) are consumed rather than passed to Minecraft. Module keybinds toggle modules on key press.
 
-**Module system** (`module/`): implement the `Module` trait (`on_start`/`on_stop`/`on_tick`, all returning `anyhow::Result<()>`) plus `ModuleData` accessors. Register new modules in `register_modules()` in `client/src/lib.rs`. Modules carry typed `ModuleSetting`s (Toggle/Slider/Choice/Color). The `ModuleRegistry` (`module/registry.rs`) is backed by a `DashMap`; reach it through `client().modules`.
+**Module system** (`module/`): implement the `Module` trait (`on_start`/`on_stop`/`on_tick`, all returning `anyhow::Result<()>`; optional `handle_packet` — see *Packet layer* below) plus `ModuleData` accessors. Register new modules in `register_modules()` in `client/src/lib.rs`. Modules carry typed `ModuleSetting`s (Toggle/Slider/Choice/Color). Each module has a stable identity — the `ModuleId` enum — and is registered/looked up by it (never by a name string). The `ModuleRegistry` (`module/registry.rs`) is a `DashMap<ModuleId, _>`; reach it through `client().modules`. `register()` also snapshots each module's factory defaults, which `ModuleRegistry::reset_settings()` (the GUI's "Reset Settings" button) restores.
 
-**Game wrappers** (`mapping/client/`, `mapping/entity/`): `Minecraft` holds only what exists from the main menu onward — the `getInstance()` handle and the `Window`. The world-scoped objects are lazy accessors — `player()`, `world()`, `game_mode()` return `Result<Option<_>>`, where `Ok(None)` means "not in a world". This lets the client be injected from the main menu; world-dependent modules early-return when `None`.
+**Config persistence** (`config.rs`): each module's keybind, setting values and enabled state — plus the GUI layout (category-panel positions and which modules are expanded) — are written to `dark_client_config.json` so they survive a re-injection. The file lives in the **injector's working directory** (passed via `DARK_CONFIG_DIR`) — deliberately *not* in `.minecraft`, to leave no trace in the game directory; it falls back to the process working directory if the variable is unset. `config::save()` runs whenever the user changes something (GUI close, module toggle, "Reset Settings", and before a Panic unload); `config::load()` runs once, right after `register_modules()`, and re-applies the saved state — re-enabling modules that were left on.
+
+**Game wrappers** (`mapping/client/`, `mapping/entity/`): `Minecraft` holds only what exists from the main menu onward — the `getInstance()` handle and the `Window`. The world-scoped objects are lazy accessors — `player()`, `world()`, `game_mode()` return `Result<Option<_>>`, where `Ok(None)` means "not in a world". This lets the client be injected from the main menu; world-dependent modules early-return when `None`. Each wrapper of a live JVM object derives `MappedObject` (`#[derive(MappedObject)]`, from the `mapping_derive` crate), which gives it `jni_ref()`, `class_type()`, and the `call_method`/`get_field`/`set_field`/`instance_of`/`is_same`/`equals` helpers. Immutable value types (`Vec3`, `BlockPos`, …) are instead read once into plain Rust fields — a value-snapshot, no JNI handle retained.
 
 **Mapping system** (`mapping/`): bridges deobfuscated (Mojmap) names — what `MinecraftClassType` and the rest of the code use — to whatever the running JVM actually exposes. `Mapping::new()` auto-detects the build and picks one of two modes:
 
@@ -66,6 +69,8 @@ This is the core control flow and spans `injector`, `protocol`, `agent_loader`, 
 Both modes share one code path: `DashMap`s (`classes`, `class_handles`) populated up-front (obfuscated) or lazily by reflection. `Mapping` owns its `JavaVM` handle and wraps all JNI calls (`call_method`, `call_static_method`, `get_field`, `set_field`, …); `class.rs` does overload resolution by scoring argument-type compatibility against JNI signatures.
 
 **Mod loaders (`mapping/loader.rs`)**: Fabric and Forge/NeoForge run the game in an isolated class loader, so `find_class` from a native thread resolves a dead duplicate of `Minecraft` whose static `instance` is null. `Mapping::new()` calls `loader::discover_game_loader` first — it scans every live thread's context class loader and keeps the one whose `Minecraft.getInstance()` is non-null. That loader is stored in `class_loader` so every later lookup goes through `ClassLoader.loadClass`. This works loader-agnostically for vanilla, Fabric and Forge on unobfuscated builds; obfuscated Minecraft under a mod loader is not supported.
+
+**Packet layer** (`net/`): intercepts the Minecraft↔server connection — used by modules that must read or rewrite packets (NoFall, Velocity). A thin Netty bridge handler, `DarkChannelHandler` (Java source + committed `.class` in `client/java/`, bytecode embedded via `include_bytes!`), is `DefineClass`'d into the game class loader, its `native` methods bound with `RegisterNatives`, and an instance inserted into the live `Connection`'s Netty pipeline *before* Minecraft's own `packet_handler` (so it sees inbound and outbound packets before the game does) — pure JNI, no JVMTI. A class name can be `DefineClass`'d only once per loader, so on hot-reload the existing class is reused and only its natives are rebound to the new library. `net::ensure_installed` (polled each tick) keeps it installed; `net::teardown` removes it before unload. The handler calls back into `net::dispatch`, which wraps the JVM packet into a `Packet` value-snapshot (`net/packet/`) and offers it to every enabled module's `Module::handle_packet`. A module may **mutate** the snapshot in place — the dispatch then rebuilds a fresh JVM object that replaces the original — or return `PacketAction::Cancel` to **drop** the packet entirely (the callback returns `null`, which the Java handler discards; works for inbound and outbound alike). Minecraft packets are strictly directional, so `Packet::from_outbound` (`Serverbound*`) and `from_inbound` (`Clientbound*`) only probe their own variants; unhandled types return `None` and pass straight through. Packet class names live in the `MinecraftClassType` enum (`mapping/class_type.rs`), not as string literals — each `net/packet/` module exposes a `CLASS_TYPE` constant. All packet/Netty JNI uses explicit descriptors — no reflection. To support a new packet, add its class(es) to `MinecraftClassType`, a value-snapshot module under `net/packet/`, and a `Packet` variant named after the Java class.
 
 **Lifecycle safety**: the global `RUNNING: AtomicBool` gates `on_frame`. A panic hook in `initialize_client` calls `cleanup_client` so input/render hooks are always uninstalled and GLFW callbacks restored, even on panic.
 
@@ -83,6 +88,10 @@ Three tiers (`cargo test --workspace` runs T1 + T2):
 
 ## Logs
 
-- `injector` → `app.log` (in its working directory)
-- `agent_loader` → `agent_loader.log`
-- `client` → `dark_client.log` (in `.minecraft`)
+All three log files — and the client config — are written to the **injector's
+working directory** (the agent loader and client receive it via the
+`DARK_CONFIG_DIR` env var), so nothing is left in `.minecraft`:
+
+- `injector` → `app.log`
+- `agent_loader` → `agent_loader.log` (set up lazily, on the first command, once the directory is known)
+- `client` → `dark_client.log`

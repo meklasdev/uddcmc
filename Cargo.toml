@@ -6,6 +6,7 @@ members = [
     "client",
     "agent_loader",
     "xtask",
+    "mapping_derive",
 ]
 
 [workspace.package]
@@ -37,3 +38,5 @@ dashmap = "6.1"
 sysinfo = "0.37.2"
 crossterm = "0.29"
 ctor = "0.2.8"
+syn = "2"
+quote = "1"

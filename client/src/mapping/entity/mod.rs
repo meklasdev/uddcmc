@@ -1,122 +1,123 @@
-use crate::mapping::{FieldType, MinecraftClassType};
+use crate::mapping::component::Component;
+use crate::mapping::entity::living::LivingEntity;
+use crate::mapping::math::Vec3;
+use crate::mapping::{FieldType, MappedObject};
 use crate::state::mapping;
 use jni::objects::{GlobalRef, JValue};
-use std::ops::Deref;
 
+pub mod living;
+pub mod mob;
 pub mod player;
 
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
-pub struct EntityLivingBase {
-    pub jni_ref: GlobalRef,
-}
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, MappedObject)]
+#[mapped(class = Entity)]
 pub struct Entity {
-    pub jni_ref: GlobalRef,
+    jni_ref: GlobalRef,
 }
 
-#[allow(dead_code)]
 impl Entity {
+    /// Wraps an existing `Entity` JVM object.
     pub fn new(jni_ref: GlobalRef) -> Entity {
         Entity { jni_ref }
     }
 
-    pub fn get_position(&self) -> anyhow::Result<(f64, f64, f64)> {
-        let vec3 = mapping()
+    /// Views this entity as a [`LivingEntity`], or `None` when it is not a
+    /// living entity — calling health methods on a non-living entity would fail.
+    pub fn as_living(&self) -> Option<LivingEntity> {
+        self.instance_of::<LivingEntity>()
+            .then(|| LivingEntity::new(self.jni_ref().clone()))
+    }
+
+    /// The entity's network id.
+    pub fn id(&self) -> anyhow::Result<i32> {
+        Ok(self.call_method("getId", &[])?.i()?)
+    }
+
+    /// The entity's world position (feet).
+    pub fn get_position(&self) -> anyhow::Result<Vec3> {
+        self.in_frame(|| {
+            let vec3 = self.call_method("position", &[])?.l()?;
+            Vec3::read(&vec3)
+        })
+    }
+
+    /// The entity's eye position — the origin to aim rotations from.
+    pub fn get_eye_position(&self) -> anyhow::Result<Vec3> {
+        self.in_frame(|| {
+            let vec3 = self.call_method("getEyePosition", &[])?.l()?;
+            Vec3::read(&vec3)
+        })
+    }
+
+    /// The entity's yaw, in degrees.
+    pub fn get_yaw(&self) -> anyhow::Result<f32> {
+        Ok(self.call_method("getYRot", &[])?.f()?)
+    }
+
+    /// The entity's pitch, in degrees.
+    pub fn get_pitch(&self) -> anyhow::Result<f32> {
+        Ok(self.call_method("getXRot", &[])?.f()?)
+    }
+
+    /// Squared distance from this entity to a world point.
+    pub fn distance_to_sqr(&self, x: f64, y: f64, z: f64) -> anyhow::Result<f64> {
+        Ok(self
             .call_method(
-                MinecraftClassType::Entity,
-                self.jni_ref.as_obj(),
-                "position",
-                &[],
-            )?
-            .l()?;
-
-        let x = mapping()
-            .get_field(MinecraftClassType::Vec3, &vec3, "x", FieldType::Double)?
-            .d()?;
-
-        let y = mapping()
-            .get_field(MinecraftClassType::Vec3, &vec3, "y", FieldType::Double)?
-            .d()?;
-
-        let z = mapping()
-            .get_field(MinecraftClassType::Vec3, &vec3, "z", FieldType::Double)?
-            .d()?;
-
-        Ok((x, y, z))
-    }
-
-    pub fn set_invulnerable(&self, value: bool) -> anyhow::Result<()> {
-        mapping().call_method(
-            MinecraftClassType::Entity,
-            self.jni_ref.as_obj(),
-            "setInvulnerable",
-            &[JValue::from(value)],
-        )?;
-
-        Ok(())
-    }
-
-    pub fn get_fall_distance(&self) -> anyhow::Result<f64> {
-        Ok(mapping()
-            .get_field(
-                MinecraftClassType::Entity,
-                self.jni_ref.as_obj(),
-                "fallDistance",
-                FieldType::Double,
+                "distanceToSqr",
+                &[JValue::Double(x), JValue::Double(y), JValue::Double(z)],
             )?
             .d()?)
     }
 
-    pub fn reset_fall_distance(&self) -> anyhow::Result<()> {
-        Ok(mapping()
-            .call_method(
-                MinecraftClassType::Entity,
-                self.jni_ref.as_obj(),
-                "resetFallDistance",
-                &[],
-            )?
-            .v()?)
+    /// Collision-box width.
+    pub fn bb_width(&self) -> anyhow::Result<f32> {
+        Ok(self.call_method("getBbWidth", &[])?.f()?)
     }
 
-    pub fn get_name(&self) -> anyhow::Result<String> {
-        mapping().get_string(
-            mapping()
-                .call_method(
-                    MinecraftClassType::Entity,
-                    self.jni_ref.as_obj(),
-                    "getName",
-                    &[],
-                )?
-                .l()?,
-        )
+    /// Collision-box height.
+    pub fn bb_height(&self) -> anyhow::Result<f32> {
+        Ok(self.call_method("getBbHeight", &[])?.f()?)
+    }
+
+    /// Whether the entity is currently sprinting.
+    pub fn is_sprinting(&self) -> anyhow::Result<bool> {
+        Ok(self.call_method("isSprinting", &[])?.z()?)
+    }
+
+    pub fn set_invulnerable(&self, value: bool) -> anyhow::Result<()> {
+        self.call_method("setInvulnerable", &[JValue::from(value)])?;
+        Ok(())
+    }
+
+    /// Sets the entity's yaw and pitch, in degrees. The previous-tick rotation
+    /// (`yRotO` / `xRotO`) is written too, so Minecraft renders the camera
+    /// exactly at this rotation instead of interpolating toward it — the
+    /// per-frame rotation system supplies the smoothing itself.
+    pub fn set_rotation(&self, yaw: f32, pitch: f32) -> anyhow::Result<()> {
+        self.call_method("setYRot", &[JValue::Float(yaw)])?;
+        self.call_method("setXRot", &[JValue::Float(pitch)])?;
+        self.set_field("yRotO", FieldType::Float, JValue::Float(yaw))?;
+        self.set_field("xRotO", FieldType::Float, JValue::Float(pitch))?;
+        Ok(())
+    }
+
+    pub fn get_fall_distance(&self) -> anyhow::Result<f64> {
+        Ok(self.get_field("fallDistance", FieldType::Double)?.d()?)
+    }
+
+    pub fn reset_fall_distance(&self) -> anyhow::Result<()> {
+        Ok(self.call_method("resetFallDistance", &[])?.v()?)
+    }
+
+    /// The entity's display name, as a [`Component`].
+    pub fn get_name(&self) -> anyhow::Result<Component> {
+        self.in_frame(|| {
+            let component = self.call_method("getName", &[])?.l()?;
+            Ok(Component::new(mapping().new_global_ref(component)?))
+        })
     }
 
     pub fn get_tick_count(&self) -> anyhow::Result<i32> {
-        Ok(mapping()
-            .get_field(
-                MinecraftClassType::Entity,
-                self.jni_ref.as_obj(),
-                "tickCount",
-                FieldType::Int,
-            )?
-            .i()?)
-    }
-}
-
-impl Deref for Entity {
-    type Target = GlobalRef;
-
-    fn deref(&self) -> &Self::Target {
-        &self.jni_ref
-    }
-}
-
-impl Deref for EntityLivingBase {
-    type Target = GlobalRef;
-
-    fn deref(&self) -> &Self::Target {
-        &self.jni_ref
+        Ok(self.get_field("tickCount", FieldType::Int)?.i()?)
     }
 }

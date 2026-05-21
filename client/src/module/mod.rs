@@ -8,7 +8,7 @@ pub mod render;
 pub type ModuleType = Box<dyn Module + Send + Sync>;
 
 #[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum ModuleCategory {
     Combat,
     Movement,
@@ -32,9 +32,40 @@ impl ModuleCategory {
     }
 }
 
+/// Stable identifier of a module — what it is registered and looked up by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum ModuleId {
+    Fly,
+    NoFall,
+    KillAura,
+    MobAura,
+    Aimbot,
+    Velocity,
+    PlayerEsp,
+    MobEsp,
+    ChestEsp,
+}
+
+impl ModuleId {
+    /// Human-readable name, shown in the UI.
+    pub fn display_name(self) -> &'static str {
+        match self {
+            ModuleId::Fly => "Fly",
+            ModuleId::NoFall => "NoFall",
+            ModuleId::KillAura => "KillAura",
+            ModuleId::MobAura => "MobAura",
+            ModuleId::Aimbot => "Aimbot",
+            ModuleId::Velocity => "Velocity",
+            ModuleId::PlayerEsp => "Player ESP",
+            ModuleId::MobEsp => "Mob ESP",
+            ModuleId::ChestEsp => "Chest ESP",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ModuleData {
-    pub name: String,
+    pub id: ModuleId,
     #[allow(dead_code)]
     pub description: String,
     #[allow(dead_code)]
@@ -106,6 +137,11 @@ impl ModuleSetting {
 }
 
 impl ModuleData {
+    /// The module's display name.
+    pub fn name(&self) -> &'static str {
+        self.id.display_name()
+    }
+
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
     }
@@ -123,6 +159,17 @@ pub trait Module: Debug + Send + Sync {
     fn on_start(&self) -> anyhow::Result<()>;
     fn on_stop(&self) -> anyhow::Result<()>;
     fn on_tick(&self) -> anyhow::Result<()>;
+
+    /// Inspects — and may modify — a packet passing through the connection.
+    /// Only enabled modules are called. Mutate `packet` in place to rewrite it;
+    /// return [`PacketAction::Cancel`] to drop it entirely. The default ignores
+    /// every packet and forwards it untouched.
+    fn handle_packet(
+        &self,
+        _packet: &mut crate::net::packet::Packet,
+    ) -> crate::net::packet::PacketAction {
+        crate::net::packet::PacketAction::Forward
+    }
 
     fn get_module_data(&self) -> &ModuleData;
     fn get_module_data_mut(&mut self) -> &mut ModuleData;

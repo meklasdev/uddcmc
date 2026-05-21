@@ -51,6 +51,9 @@ unsafe fn on_frame() {
     }
 
     check_tick();
+    // Ease combat-module rotations toward their target every frame — this is
+    // what makes aiming smooth rather than the visible 20 Hz tick steps.
+    crate::module::combat::rotation::update();
     render_overlay();
 }
 
@@ -82,6 +85,8 @@ fn check_tick() {
 
     if tick_count > LAST_TICK.load(Ordering::Relaxed) {
         LAST_TICK.store(tick_count, Ordering::Relaxed);
+        // Keep our Netty handler on the live connection's pipeline.
+        crate::net::ensure_installed();
         state::client().modules.tick();
     }
 }
