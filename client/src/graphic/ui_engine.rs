@@ -227,7 +227,7 @@ pub fn call_panic() {
             if let Err(e) = module.on_stop() {
                 log::error!(
                     "Failed to stop module {} on panic: {}",
-                    module.get_module_data().name,
+                    module.get_module_data().name(),
                     e
                 );
             }

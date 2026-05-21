@@ -80,6 +80,9 @@ pub fn env() -> anyhow::Result<JNIEnv<'static>> {
 /// sizable — the class-handle cache, the game class loader, the cached player
 /// — is released here.
 pub fn teardown() {
+    // Remove the Netty pipeline handler first — leaving it in place would
+    // crash the JVM once this library is unloaded.
+    crate::net::teardown();
     if let Some(client) = CLIENT.get() {
         client.minecraft.teardown();
     }

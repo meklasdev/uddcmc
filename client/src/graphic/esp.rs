@@ -24,7 +24,7 @@ use crate::mapping::entity::player::Player;
 use crate::mapping::entity::Entity;
 use crate::mapping::math::Vec3;
 use crate::mapping::MappedObject;
-use crate::module::ModuleSetting;
+use crate::module::{ModuleId, ModuleSetting};
 use crate::state::{client, minecraft};
 use egui::{
     pos2, vec2, Align2, Color32, Context, FontId, Id, LayerId, Order, Painter, Pos2, Rect,
@@ -310,7 +310,7 @@ fn read_config() -> EspConfig {
 
     let modules = &client().modules;
 
-    if let Some(arc) = modules.get("Player ESP") {
+    if let Some(arc) = modules.get(ModuleId::PlayerEsp) {
         if let Ok(module) = arc.lock() {
             let data = module.get_module_data();
             cfg.player = EntityCfg {
@@ -323,7 +323,7 @@ fn read_config() -> EspConfig {
             };
         }
     }
-    if let Some(arc) = modules.get("Mob ESP") {
+    if let Some(arc) = modules.get(ModuleId::MobEsp) {
         if let Ok(module) = arc.lock() {
             let data = module.get_module_data();
             cfg.mob = EntityCfg {
@@ -336,7 +336,7 @@ fn read_config() -> EspConfig {
             };
         }
     }
-    if let Some(arc) = modules.get("Chest ESP") {
+    if let Some(arc) = modules.get(ModuleId::ChestEsp) {
         if let Ok(module) = arc.lock() {
             let data = module.get_module_data();
             cfg.chest = ChestCfg {

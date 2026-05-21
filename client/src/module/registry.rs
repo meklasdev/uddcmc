@@ -1,4 +1,4 @@
-//! The module registry — every registered module, keyed by name.
+//! The module registry — every registered module, keyed by [`ModuleId`].
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -6,7 +6,8 @@ use std::sync::{Arc, Mutex};
 use dashmap::DashMap;
 use log::error;
 
-use crate::module::{Module, ModuleType};
+use crate::module::{Module, ModuleId, ModuleType};
+use crate::net::packet::Packet;
 
 /// A shared, lockable handle to one module.
 pub type ModuleHandle = Arc<Mutex<ModuleType>>;
@@ -15,7 +16,7 @@ pub type ModuleHandle = Arc<Mutex<ModuleType>>;
 /// can read it each frame without contending on a single global lock.
 #[derive(Default)]
 pub struct ModuleRegistry {
-    modules: DashMap<String, ModuleHandle>,
+    modules: DashMap<ModuleId, ModuleHandle>,
 }
 
 impl ModuleRegistry {
@@ -24,21 +25,19 @@ impl ModuleRegistry {
         Self::default()
     }
 
-    /// Registers a module under its declared name.
+    /// Registers a module under its [`ModuleId`].
     pub fn register<M>(&self, module: M)
     where
         M: Module + Send + Sync + 'static,
     {
         let module: ModuleType = Box::new(module);
-        let name = module.get_module_data().name.clone();
-        self.modules.insert(name, Arc::new(Mutex::new(module)));
+        let id = module.get_module_data().id;
+        self.modules.insert(id, Arc::new(Mutex::new(module)));
     }
 
-    /// A handle to one module by name.
-    pub fn get(&self, name: &str) -> Option<ModuleHandle> {
-        self.modules
-            .get(name)
-            .map(|entry| Arc::clone(entry.value()))
+    /// A handle to one module by id.
+    pub fn get(&self, id: ModuleId) -> Option<ModuleHandle> {
+        self.modules.get(&id).map(|entry| Arc::clone(entry.value()))
     }
 
     /// Handles to every module. Snapshotted, so the caller holds no shard
@@ -50,11 +49,11 @@ impl ModuleRegistry {
             .collect()
     }
 
-    /// Every module keyed by name — an owned snapshot.
-    pub fn by_name(&self) -> HashMap<String, ModuleHandle> {
+    /// Every module keyed by id — an owned snapshot.
+    pub fn by_id(&self) -> HashMap<ModuleId, ModuleHandle> {
         self.modules
             .iter()
-            .map(|entry| (entry.key().clone(), Arc::clone(entry.value())))
+            .map(|entry| (*entry.key(), Arc::clone(entry.value())))
             .collect()
     }
 
@@ -69,11 +68,24 @@ impl ModuleRegistry {
                 continue;
             }
             if let Err(e) = module.on_tick() {
-                let name = &module.get_module_data().name;
+                let name = module.get_module_data().name();
                 error!("module '{name}' tick failed, stopping it: {e}");
                 if let Err(e) = module.on_stop() {
                     error!("module '{name}' also failed to stop: {e}");
                 }
+            }
+        }
+    }
+
+    /// Offers `packet` to every enabled module's `handle_packet`. Called from
+    /// the connection's packet dispatch, on the Netty thread.
+    pub fn handle_packet(&self, packet: &mut Packet) {
+        for handle in self.handles() {
+            let Ok(module) = handle.lock() else {
+                continue;
+            };
+            if module.get_module_data().enabled {
+                module.handle_packet(packet);
             }
         }
     }

@@ -85,6 +85,8 @@ fn check_tick() {
 
     if tick_count > LAST_TICK.load(Ordering::Relaxed) {
         LAST_TICK.store(tick_count, Ordering::Relaxed);
+        // Keep our Netty handler on the live connection's pipeline.
+        crate::net::ensure_installed();
         state::client().modules.tick();
     }
 }

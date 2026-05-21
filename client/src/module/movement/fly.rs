@@ -1,4 +1,4 @@
-use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleSetting};
+use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId, ModuleSetting};
 use crate::state::minecraft;
 
 /// Vanilla creative-fly speed — restored when Fly is turned off.
@@ -13,7 +13,7 @@ impl FlyModule {
     pub fn new() -> Self {
         Self {
             module: ModuleData {
-                name: "Fly".to_string(),
+                id: ModuleId::Fly,
                 description: "Enables flight".to_string(),
                 category: ModuleCategory::Movement,
                 key_bind: KeyboardKey::KeyF,

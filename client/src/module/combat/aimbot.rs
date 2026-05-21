@@ -2,7 +2,7 @@ use crate::mapping::entity::mob::Mob;
 use crate::mapping::entity::player::Player;
 use crate::mapping::MappedObject;
 use crate::module::combat::{look_at, pick_target};
-use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleSetting};
+use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId, ModuleSetting};
 use crate::state::minecraft;
 use std::sync::Mutex;
 
@@ -17,7 +17,7 @@ impl AimbotModule {
     pub fn new() -> Self {
         Self {
             module: ModuleData {
-                name: "Aimbot".to_string(),
+                id: ModuleId::Aimbot,
                 description: "Smoothly aims at the nearest entity".to_string(),
                 category: ModuleCategory::Combat,
                 key_bind: KeyboardKey::KeyC,

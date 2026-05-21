@@ -1,0 +1,58 @@
+use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId};
+use crate::net::packet::Packet;
+
+/// Prevents fall damage. The work happens in [`NoFallModule::handle_packet`]:
+/// while enabled, every outbound movement packet reports the player as on the
+/// ground, so the server never accumulates the fall distance it would turn
+/// into damage. `on_tick` does nothing — this module is packet-driven.
+#[derive(Debug)]
+pub struct NoFallModule {
+    pub module: ModuleData,
+}
+
+impl NoFallModule {
+    pub fn new() -> Self {
+        Self {
+            module: ModuleData {
+                id: ModuleId::NoFall,
+                description: "Prevents fall damage".to_string(),
+                category: ModuleCategory::Movement,
+                key_bind: KeyboardKey::KeyN,
+                enabled: false,
+                settings: vec![],
+            },
+        }
+    }
+}
+
+impl Module for NoFallModule {
+    fn on_start(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn on_stop(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn on_tick(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn handle_packet(&self, packet: &mut Packet) {
+        // Report the player as on the ground on every movement packet.
+        // (`if let` filters for the variant we care about — it becomes
+        // refutable once `Packet` gains more variants.)
+        #[allow(irrefutable_let_patterns)]
+        if let Packet::MovePlayer(move_packet) = packet {
+            move_packet.on_ground = true;
+        }
+    }
+
+    fn get_module_data(&self) -> &ModuleData {
+        &self.module
+    }
+
+    fn get_module_data_mut(&mut self) -> &mut ModuleData {
+        &mut self.module
+    }
+}

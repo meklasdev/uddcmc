@@ -249,6 +249,12 @@ impl Mapping {
         self.class_loader.read().ok().and_then(|slot| slot.clone())
     }
 
+    /// The captured game class loader — used to `DefineClass` new classes (the
+    /// Netty bridge handler) so they can see Minecraft and Netty types.
+    pub fn game_class_loader(&self) -> Option<GlobalRef> {
+        self.loader()
+    }
+
     /// Resolves a JVM class by its JNI name, working from any thread.
     ///
     /// `JNIEnv::find_class` resolves against the class loader of the calling

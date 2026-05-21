@@ -1,4 +1,4 @@
-use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleSetting};
+use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId, ModuleSetting};
 
 /// Highlights other players with a 3D wireframe box.
 ///
@@ -13,7 +13,7 @@ impl PlayerEspModule {
     pub fn new() -> Self {
         Self {
             module: ModuleData {
-                name: "Player ESP".to_string(),
+                id: ModuleId::PlayerEsp,
                 description: "Draws a 3D box around players".to_string(),
                 category: ModuleCategory::Render,
                 key_bind: KeyboardKey::KeyNone,

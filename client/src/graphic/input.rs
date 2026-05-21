@@ -232,7 +232,7 @@ fn handle_module_keybind(key: i32) {
         let enabled = !module.get_module_data().enabled;
         info!(
             "{} {}",
-            module.get_module_data().name,
+            module.get_module_data().name(),
             if enabled { "enabled" } else { "disabled" }
         );
         if enabled {

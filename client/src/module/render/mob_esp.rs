@@ -1,4 +1,4 @@
-use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleSetting};
+use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId, ModuleSetting};
 
 /// Highlights mobs (hostile and passive creatures) with a 3D wireframe box.
 ///
@@ -13,7 +13,7 @@ impl MobEspModule {
     pub fn new() -> Self {
         Self {
             module: ModuleData {
-                name: "Mob ESP".to_string(),
+                id: ModuleId::MobEsp,
                 description: "Draws a 3D box around mobs".to_string(),
                 category: ModuleCategory::Render,
                 key_bind: KeyboardKey::KeyNone,

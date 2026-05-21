@@ -3,7 +3,7 @@ use crate::mapping::entity::player::{LocalPlayer, Player};
 use crate::mapping::entity::Entity;
 use crate::mapping::MappedObject;
 use crate::module::combat::{look_at, pick_target};
-use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleSetting};
+use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId, ModuleSetting};
 use crate::state::minecraft;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -33,14 +33,14 @@ pub struct BaseAura {
 
 impl BaseAura {
     pub fn new(
-        name: String,
+        id: ModuleId,
         description: String,
         key_bind: KeyboardKey,
         target: AuraTarget,
     ) -> Self {
         Self {
             module: ModuleData {
-                name,
+                id,
                 description,
                 category: ModuleCategory::Combat,
                 key_bind,

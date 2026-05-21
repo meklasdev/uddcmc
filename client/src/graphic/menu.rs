@@ -9,7 +9,7 @@ use crate::graphic::anim::{self, Easing, SpringCfg};
 use crate::graphic::input::LAST_KEY_PRESSED;
 use crate::graphic::notification::{Notification, NotificationType};
 use crate::graphic::theme;
-use crate::module::{KeyboardKey, ModuleCategory, ModuleData, ModuleSetting, ModuleType};
+use crate::module::{KeyboardKey, ModuleCategory, ModuleData, ModuleId, ModuleSetting, ModuleType};
 use egui::{
     Align, Align2, Button, Color32, Context, FontId, Id, LayerId, Layout, Margin, Order, Painter,
     Pos2, Rect, RichText, Rounding, Sense, Shape, Stroke, Ui, Vec2,
@@ -35,24 +35,23 @@ const ORIGIN_Y: f32 = 58.0;
 /// A shared handle to one module.
 type ModuleArc = Arc<Mutex<ModuleType>>;
 /// The whole module registry, as borrowed from the read guard.
-type ModuleMap = HashMap<String, ModuleArc>;
+type ModuleMap = HashMap<ModuleId, ModuleArc>;
 
 /// Draws the entire ClickGUI. `progress` is the 0..1 open animation factor.
 pub fn draw(ctx: &Context, progress: f32) {
     draw_backdrop(ctx, progress);
 
-    let registry = crate::state::client().modules.by_name();
+    let registry = crate::state::client().modules.by_id();
 
     // Single lock per module: collect the data layout needs, nothing more.
-    let mut entries: Vec<(String, ModuleCategory)> = registry
-        .values()
-        .map(|arc| {
+    let mut entries: Vec<(ModuleId, ModuleCategory)> = registry
+        .iter()
+        .map(|(id, arc)| {
             let module = arc.lock().unwrap();
-            let data = module.get_module_data();
-            (data.name.clone(), data.category)
+            (*id, module.get_module_data().category)
         })
         .collect();
-    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    entries.sort_by_key(|(id, _)| id.display_name());
 
     draw_toolbar(ctx, progress);
 
@@ -71,7 +70,11 @@ pub fn draw(ctx: &Context, progress: f32) {
         let members: Vec<(String, &ModuleArc)> = entries
             .iter()
             .filter(|(_, cat)| *cat == category)
-            .filter_map(|(name, _)| registry.get(name).map(|arc| (name.clone(), arc)))
+            .filter_map(|(id, _)| {
+                registry
+                    .get(id)
+                    .map(|arc| (id.display_name().to_string(), arc))
+            })
             .collect();
         if members.is_empty() {
             continue;
@@ -420,7 +423,7 @@ fn keybind_row(ui: &mut Ui, data: &mut ModuleData, arc: &ModuleArc, registry: &M
     ui.horizontal(|ui| {
         ui.label(label("Bind"));
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let bind_id = Id::new("kb_listen").with(data.name.as_str());
+            let bind_id = Id::new("kb_listen").with(data.name());
             let listening = ui.data(|d| d.get_temp::<bool>(bind_id).unwrap_or(false));
 
             let caption = if listening {
@@ -474,7 +477,7 @@ fn capture_keybind(data: &mut ModuleData, arc: &ModuleArc, registry: &ModuleMap)
         }
         let owner = other.lock().unwrap();
         if owner.get_module_data().key_bind == key {
-            let owner_name = owner.get_module_data().name.clone();
+            let owner_name = owner.get_module_data().name().to_string();
             drop(owner);
             Notification::send(
                 NotificationType::Warning,
