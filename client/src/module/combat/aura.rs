@@ -1,11 +1,21 @@
-use crate::mapping::MinecraftClassType;
+use crate::mapping::entity::mob::Mob;
+use crate::mapping::entity::player::Player;
+use crate::mapping::entity::Entity;
+use crate::mapping::JavaObject;
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleSetting};
-use crate::state::{mapping, minecraft};
+use crate::state::minecraft;
+
+/// Which entities an aura attacks.
+#[derive(Debug, Clone, Copy)]
+pub enum AuraTarget {
+    Players,
+    Mobs,
+}
 
 #[derive(Debug)]
 pub struct BaseAura {
     pub module: ModuleData,
-    pub target_type: MinecraftClassType,
+    pub target: AuraTarget,
 }
 
 impl BaseAura {
@@ -13,7 +23,7 @@ impl BaseAura {
         name: String,
         description: String,
         key_bind: KeyboardKey,
-        target_type: MinecraftClassType,
+        target: AuraTarget,
     ) -> Self {
         Self {
             module: ModuleData {
@@ -29,7 +39,7 @@ impl BaseAura {
                     max: 6.0,
                 }],
             },
-            target_type,
+            target,
         }
     }
 
@@ -38,6 +48,14 @@ impl BaseAura {
             .get_setting("Range")
             .and_then(|s| s.get_slider_value())
             .unwrap_or(4.0)
+    }
+
+    /// Whether `entity` is the kind of entity this aura attacks.
+    fn is_target(&self, entity: &Entity) -> bool {
+        match self.target {
+            AuraTarget::Players => entity.instance_of::<Player>(),
+            AuraTarget::Mobs => entity.instance_of::<Mob>(),
+        }
     }
 }
 
@@ -59,27 +77,22 @@ impl Module for BaseAura {
         ) else {
             return Ok(()); // not in a world — nothing to do
         };
-        let mapping = mapping();
 
-        let entities = world.get_entities()?;
         let range = self.get_range() as f64;
-        let env = mapping.get_env()?;
-
         let player_pos = player.entity.get_position()?;
 
-        for entity in entities {
-            if env.is_same_object(entity.jni_ref.as_obj(), player.entity.jni_ref.as_obj())? {
+        for entity in world.get_entities()? {
+            if entity.is_same(&player.entity) {
                 continue;
             }
-
-            if !mapping.is_instance_of(self.target_type, entity.jni_ref.as_obj())? {
+            if !self.is_target(&entity) {
                 continue;
             }
 
             let entity_pos = entity.get_position()?;
-            let dist = ((player_pos.0 - entity_pos.0).powi(2)
-                + (player_pos.1 - entity_pos.1).powi(2)
-                + (player_pos.2 - entity_pos.2).powi(2))
+            let dist = ((player_pos.x() - entity_pos.x()).powi(2)
+                + (player_pos.y() - entity_pos.y()).powi(2)
+                + (player_pos.z() - entity_pos.z()).powi(2))
             .sqrt();
 
             if dist <= range {

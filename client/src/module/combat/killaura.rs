@@ -1,5 +1,4 @@
-use crate::mapping::MinecraftClassType;
-use crate::module::combat::aura::BaseAura;
+use crate::module::combat::aura::{AuraTarget, BaseAura};
 use crate::module::{KeyboardKey, Module, ModuleData};
 
 #[derive(Debug)]
@@ -14,7 +13,7 @@ impl KillAuraModule {
                 "KillAura".to_string(),
                 "Automatically attacks players".to_string(),
                 KeyboardKey::KeyR,
-                MinecraftClassType::Player,
+                AuraTarget::Players,
             ),
         }
     }

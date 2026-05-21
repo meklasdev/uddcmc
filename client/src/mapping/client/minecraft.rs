@@ -1,8 +1,10 @@
+use crate::mapping::client::game_renderer::GameRenderer;
 use crate::mapping::client::gamemode::MultiPlayerGameMode;
+use crate::mapping::client::options::Options;
 use crate::mapping::client::window::Window;
 use crate::mapping::client::world::World;
 use crate::mapping::entity::player::LocalPlayer;
-use crate::mapping::{FieldType, MinecraftClassType};
+use crate::mapping::{FieldType, JavaObject, MinecraftClassType};
 use crate::state::mapping;
 use jni::objects::GlobalRef;
 use std::ops::Deref;
@@ -27,13 +29,15 @@ impl Minecraft {
     /// Builds the game wrapper from the live `Minecraft.getInstance()`.
     /// Succeeds whether or not a world is loaded.
     pub fn new() -> anyhow::Result<Minecraft> {
-        let minecraft = mapping()
-            .call_static_method(MinecraftClassType::Minecraft, "getInstance", &[])?
-            .l()?;
-        if minecraft.is_null() {
-            return Err(anyhow::anyhow!("Minecraft.getInstance() returned null"));
-        }
-        let jni_ref = mapping().new_global_ref(minecraft)?;
+        let jni_ref = mapping().in_frame(|| {
+            let minecraft = mapping()
+                .call_static_method(MinecraftClassType::Minecraft, "getInstance", &[])?
+                .l()?;
+            if minecraft.is_null() {
+                return Err(anyhow::anyhow!("Minecraft.getInstance() returned null"));
+            }
+            mapping().new_global_ref(minecraft)
+        })?;
         let window = Window::new(&jni_ref)?;
 
         Ok(Minecraft {
@@ -89,6 +93,36 @@ impl Minecraft {
             .map(MultiPlayerGameMode::new))
     }
 
+    /// The game renderer. Present from the main menu onward.
+    pub fn game_renderer(&self) -> anyhow::Result<GameRenderer> {
+        mapping().in_frame(|| {
+            let obj = mapping()
+                .get_field(
+                    MinecraftClassType::Minecraft,
+                    self.jni_ref.as_obj(),
+                    "gameRenderer",
+                    FieldType::Object(MinecraftClassType::GameRenderer),
+                )?
+                .l()?;
+            Ok(GameRenderer::new(mapping().new_global_ref(obj)?))
+        })
+    }
+
+    /// The game options. Present from the main menu onward.
+    pub fn options(&self) -> anyhow::Result<Options> {
+        mapping().in_frame(|| {
+            let obj = mapping()
+                .get_field(
+                    MinecraftClassType::Minecraft,
+                    self.jni_ref.as_obj(),
+                    "options",
+                    FieldType::Object(MinecraftClassType::Options),
+                )?
+                .l()?;
+            Ok(Options::new(mapping().new_global_ref(obj)?))
+        })
+    }
+
     /// Whether a world is currently loaded.
     pub fn in_world(&self) -> bool {
         matches!(self.player(), Ok(Some(_)))
@@ -96,17 +130,19 @@ impl Minecraft {
 
     /// Whether no screen (menu / inventory / …) is currently open.
     pub fn current_screen_is_null(&self) -> bool {
-        if let Ok(screen_obj) = mapping().get_field(
-            MinecraftClassType::Minecraft,
-            self.jni_ref.as_obj(),
-            "screen",
-            FieldType::Object(MinecraftClassType::Screen),
-        ) {
-            if let Ok(l) = screen_obj.l() {
-                return l.is_null();
-            }
-        }
-        true
+        mapping()
+            .in_frame(|| {
+                let screen = mapping()
+                    .get_field(
+                        MinecraftClassType::Minecraft,
+                        self.jni_ref.as_obj(),
+                        "screen",
+                        FieldType::Object(MinecraftClassType::Screen),
+                    )?
+                    .l()?;
+                Ok(screen.is_null())
+            })
+            .unwrap_or(true)
     }
 
     /// Reads a world-scoped object field of `Minecraft`, returning `Ok(None)`
@@ -116,18 +152,30 @@ impl Minecraft {
         field: &str,
         class: MinecraftClassType,
     ) -> anyhow::Result<Option<GlobalRef>> {
-        let obj = mapping()
-            .get_field(
-                MinecraftClassType::Minecraft,
-                self.jni_ref.as_obj(),
-                field,
-                FieldType::Object(class),
-            )?
-            .l()?;
-        if obj.is_null() {
-            return Ok(None);
-        }
-        Ok(Some(mapping().new_global_ref(obj)?))
+        mapping().in_frame(|| {
+            let obj = mapping()
+                .get_field(
+                    MinecraftClassType::Minecraft,
+                    self.jni_ref.as_obj(),
+                    field,
+                    FieldType::Object(class),
+                )?
+                .l()?;
+            if obj.is_null() {
+                return Ok(None);
+            }
+            Ok(Some(mapping().new_global_ref(obj)?))
+        })
+    }
+}
+
+impl JavaObject for Minecraft {
+    fn jni_ref(&self) -> &GlobalRef {
+        &self.jni_ref
+    }
+
+    fn class_type() -> MinecraftClassType {
+        MinecraftClassType::Minecraft
     }
 }
 

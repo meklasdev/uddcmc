@@ -1,5 +1,6 @@
 use crate::mapping::class::{Method, MethodHandle, MinecraftClass};
 pub use crate::mapping::class_type::MinecraftClassType;
+pub use crate::mapping::object::JavaObject;
 use crate::mapping::minecraft_version::MinecraftVersion;
 use dashmap::DashMap;
 use jni::objects::{GlobalRef, JClass, JMethodID, JObject, JString, JValue, JValueOwned};
@@ -11,11 +12,15 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
+pub mod block_entity;
 pub mod class;
 pub mod class_type;
 pub mod client;
+pub mod component;
 pub mod entity;
 pub mod java;
+pub mod math;
+pub mod object;
 mod loader;
 mod method;
 mod minecraft_version;
@@ -194,6 +199,15 @@ impl Mapping {
     /// Called on the `'static` global mapping, the environment is `'static`.
     pub fn get_env(&self) -> anyhow::Result<JNIEnv<'_>> {
         Ok(self.jvm.attach_current_thread_as_daemon()?)
+    }
+
+    /// Runs `f` inside a fresh JNI local-reference frame: every local reference
+    /// `f` creates is released when it returns, while the value it yields (a
+    /// plain value or a `GlobalRef`-backed wrapper) survives. This lets each
+    /// wrapper method bound its own JNI garbage, so no caller manages frames.
+    pub fn in_frame<T>(&self, f: impl FnOnce() -> anyhow::Result<T>) -> anyhow::Result<T> {
+        let mut env = self.get_env()?;
+        env.with_local_frame(16, |_| f())
     }
 
     pub fn get_version(&self) -> MinecraftVersion {

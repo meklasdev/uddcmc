@@ -1,6 +1,6 @@
 use crate::mapping::entity::player::LocalPlayer;
 use crate::mapping::entity::Entity;
-use crate::mapping::MinecraftClassType;
+use crate::mapping::{JavaObject, MinecraftClassType};
 use crate::state::mapping;
 use jni::objects::{GlobalRef, JValue};
 use std::ops::Deref;
@@ -15,6 +15,7 @@ impl MultiPlayerGameMode {
         Self { jni_ref }
     }
 
+    /// Attacks `target` on behalf of the local player.
     pub fn attack(&self, player: &LocalPlayer, target: &Entity) -> anyhow::Result<()> {
         mapping().call_method(
             MinecraftClassType::MultiPlayerGameMode,
@@ -27,6 +28,16 @@ impl MultiPlayerGameMode {
         )?;
 
         Ok(())
+    }
+}
+
+impl JavaObject for MultiPlayerGameMode {
+    fn jni_ref(&self) -> &GlobalRef {
+        &self.jni_ref
+    }
+
+    fn class_type() -> MinecraftClassType {
+        MinecraftClassType::MultiPlayerGameMode
     }
 }
 

@@ -17,14 +17,19 @@
 //! The chest scan is heavier (it walks loaded chunks) so it runs even rarer,
 //! every [`CHEST_SCAN_INTERVAL`].
 
-use crate::mapping::{FieldType, Mapping, MinecraftClassType as Cls};
+use crate::mapping::client::camera::Camera;
+use crate::mapping::client::world::World;
+use crate::mapping::entity::mob::Mob;
+use crate::mapping::entity::player::Player;
+use crate::mapping::entity::Entity;
+use crate::mapping::math::Vec3;
+use crate::mapping::JavaObject;
 use crate::module::ModuleSetting;
-use crate::state::{client, mapping, minecraft};
+use crate::state::{client, minecraft};
 use egui::{
     pos2, vec2, Align2, Color32, Context, FontId, Id, LayerId, Order, Painter, Pos2, Rect,
     Rounding, Stroke,
 };
-use jni::objects::{GlobalRef, JObject, JValue};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -81,6 +86,17 @@ impl V3 {
 
     fn length(self) -> f64 {
         self.dot(self).sqrt()
+    }
+}
+
+/// Converts a JNI-snapshot [`Vec3`] into the projection-math vector.
+impl From<Vec3> for V3 {
+    fn from(v: Vec3) -> V3 {
+        V3 {
+            x: v.x(),
+            y: v.y(),
+            z: v.z(),
+        }
     }
 }
 
@@ -179,9 +195,9 @@ struct ChestTarget {
     pos: V3,
 }
 
-/// Cross-frame ESP state: the cached camera handles and the latest snapshot.
+/// Cross-frame ESP state: the cached camera handle and the latest snapshot.
 struct EspState {
-    camera: Option<GlobalRef>,
+    camera: Option<Camera>,
     entities: Vec<EntityTarget>,
     chests: Vec<ChestTarget>,
     prev_gather: Option<Instant>,
@@ -388,12 +404,10 @@ fn interp_factor(state: &EspState, now: Instant) -> f64 {
 
 // --- camera ----------------------------------------------------------------
 
-/// Resolves the current camera into a [`View`], caching the JNI handles.
+/// Resolves the current camera into a [`View`], caching the [`Camera`] handle.
 fn read_view(state: &mut EspState, ctx: &Context) -> Option<View> {
-    let mapping = mapping();
-
     if state.camera.is_none() {
-        match init_camera(mapping) {
+        match minecraft().game_renderer().and_then(|gr| gr.get_main_camera()) {
             Ok(camera) => state.camera = Some(camera),
             Err(e) => {
                 log::debug!("ESP: camera unavailable: {e}");
@@ -402,43 +416,15 @@ fn read_view(state: &mut EspState, ctx: &Context) -> Option<View> {
         }
     }
 
-    let cam = state.camera.clone()?;
+    let camera = state.camera.clone()?;
     let rect = ctx.screen_rect();
     if rect.width() < 1.0 || rect.height() < 1.0 {
         return None;
     }
 
-    let mut env = mapping.get_env().ok()?;
-    // The camera state is read from `Camera`'s fields, not getter methods:
-    // method names churn between versions, the plain fields are far stabler.
-    let read = env.with_local_frame(32, |_| -> anyhow::Result<(V3, f32, f32)> {
-        let pos = mapping
-            .get_field(
-                Cls::Camera,
-                cam.as_obj(),
-                "position",
-                FieldType::Object(Cls::Vec3),
-            )?
-            .l()?;
-        let cam_pos = V3 {
-            x: mapping
-                .get_field(Cls::Vec3, &pos, "x", FieldType::Double)?
-                .d()?,
-            y: mapping
-                .get_field(Cls::Vec3, &pos, "y", FieldType::Double)?
-                .d()?,
-            z: mapping
-                .get_field(Cls::Vec3, &pos, "z", FieldType::Double)?
-                .d()?,
-        };
-        let yaw = mapping
-            .get_field(Cls::Camera, cam.as_obj(), "yRot", FieldType::Float)?
-            .f()?;
-        let pitch = mapping
-            .get_field(Cls::Camera, cam.as_obj(), "xRot", FieldType::Float)?
-            .f()?;
-        Ok((cam_pos, yaw, pitch))
-    });
+    let read = (|| -> anyhow::Result<(V3, f32, f32)> {
+        Ok((camera.position()?.into(), camera.yaw()?, camera.pitch()?))
+    })();
 
     let (cam_pos, yaw, pitch) = match read {
         Ok(values) => values,
@@ -468,110 +454,41 @@ fn read_view(state: &mut EspState, ctx: &Context) -> Option<View> {
     ))
 }
 
-/// Fetches the (session-stable) `Camera` handle via the game renderer.
-fn init_camera(mapping: &Mapping) -> anyhow::Result<GlobalRef> {
-    let mc = minecraft();
-    let mut env = mapping.get_env()?;
-    env.with_local_frame(16, |_| -> anyhow::Result<GlobalRef> {
-        let renderer = mapping
-            .get_field(
-                Cls::Minecraft,
-                mc.jni_ref.as_obj(),
-                "gameRenderer",
-                FieldType::Object(Cls::GameRenderer),
-            )?
-            .l()?;
-        let camera = mapping
-            .call_method(Cls::GameRenderer, &renderer, "getMainCamera", &[])?
-            .l()?;
-        mapping.new_global_ref(camera)
-    })
-}
-
 /// Reads the vertical field of view, in degrees, Minecraft is rendering with:
 /// the options value scaled by the flying / sprinting modifiers Minecraft
 /// itself applies. Without them the box drifts off entities while either is
 /// active (`GameRenderer.getFov` would give this directly, but its signature
 /// is not stable across versions).
-fn read_fov(mapping: &Mapping) -> f64 {
-    let base = match read_option_fov(mapping) {
+fn read_fov() -> f64 {
+    let base = match read_option_fov() {
         Ok(fov) if fov.is_finite() && (1.0..=179.0).contains(&fov) => fov,
         _ => 70.0,
     };
-    (base * fov_modifier(mapping)).clamp(1.0, 179.0)
+    (base * fov_modifier()).clamp(1.0, 179.0)
 }
 
 /// The FOV multiplier Minecraft applies on top of the options value: ×1.1
 /// while flying and ≈×1.15 while sprinting — the constants from
 /// `Player.getFieldOfViewModifier`.
-fn fov_modifier(mapping: &Mapping) -> f64 {
+fn fov_modifier() -> f64 {
     let player = match minecraft().player() {
         Ok(Some(player)) => player,
         _ => return 1.0,
     };
 
     let mut modifier = 1.0;
-
-    let flying = mapping
-        .get_field(
-            Cls::Abilities,
-            player.abilities.jni_ref.as_obj(),
-            "flying",
-            FieldType::Boolean,
-        )
-        .ok()
-        .and_then(|value| value.z().ok())
-        .unwrap_or(false);
-    if flying {
+    if player.abilities.is_flying().unwrap_or(false) {
         modifier *= 1.1;
     }
-
-    let sprinting = mapping
-        .call_method(
-            Cls::Entity,
-            player.entity.jni_ref.as_obj(),
-            "isSprinting",
-            &[],
-        )
-        .ok()
-        .and_then(|value| value.z().ok())
-        .unwrap_or(false);
-    if sprinting {
+    if player.entity.is_sprinting().unwrap_or(false) {
         modifier *= 1.15;
     }
-
     modifier
 }
 
 /// Reads the raw FOV slider value from the game options.
-fn read_option_fov(mapping: &Mapping) -> anyhow::Result<f64> {
-    let mc = minecraft();
-    let mut env = mapping.get_env()?;
-    env.with_local_frame(16, |_| -> anyhow::Result<f64> {
-        let options = mapping
-            .get_field(
-                Cls::Minecraft,
-                mc.jni_ref.as_obj(),
-                "options",
-                FieldType::Object(Cls::Options),
-            )?
-            .l()?;
-        let option = mapping
-            .get_field(
-                Cls::Options,
-                &options,
-                "fov",
-                FieldType::Object(Cls::OptionInstance),
-            )?
-            .l()?;
-        let value = mapping
-            .call_method(Cls::OptionInstance, &option, "get", &[])?
-            .l()?;
-        let fov = mapping
-            .call_method(Cls::Integer, &value, "intValue", &[])?
-            .i()?;
-        Ok(fov as f64)
-    })
+fn read_option_fov() -> anyhow::Result<f64> {
+    Ok(minecraft().options()?.fov()?.get_int()? as f64)
 }
 
 // --- gather ----------------------------------------------------------------
@@ -580,7 +497,7 @@ fn read_option_fov(mapping: &Mapping) -> anyhow::Result<f64> {
 fn gather(state: &mut EspState, cfg: &EspConfig, now: Instant) {
     state.prev_gather = state.last_gather;
     state.last_gather = Some(now);
-    state.target_fov = read_fov(mapping());
+    state.target_fov = read_fov();
 
     if cfg.player.enabled || cfg.mob.enabled {
         let mut range = 0.0_f32;
@@ -626,93 +543,40 @@ fn gather_entities(
     want_mob: bool,
 ) -> anyhow::Result<Vec<EntityTarget>> {
     let mc = minecraft();
-    let mapping = mapping();
+    let (Some(world), Some(player)) = (mc.world()?, mc.player()?) else {
+        return Ok(Vec::new());
+    };
+
+    let local_id = player.entity.id()?;
+    let player_pos: V3 = player.entity.get_position()?.into();
 
     // Carry positions forward so the new snapshot can interpolate from them.
     let prev_pos: HashMap<i32, V3> = previous.iter().map(|e| (e.id, e.pos)).collect();
 
-    let mut env = mapping.get_env()?;
     let mut out: Vec<EntityTarget> = Vec::new();
-
-    env.with_local_frame(32, |env| -> anyhow::Result<()> {
-        let (local_id, player_pos) = {
-            let Some(player) = mc.player()? else {
-                return Ok(());
-            };
-            let id = mapping
-                .call_method(Cls::Entity, player.entity.jni_ref.as_obj(), "getId", &[])?
-                .i()?;
-            let pos = player.entity.get_position()?;
-            (
-                id,
-                V3 {
-                    x: pos.0,
-                    y: pos.1,
-                    z: pos.2,
-                },
-            )
-        };
-
-        let level = mapping
-            .get_field(
-                Cls::Minecraft,
-                mc.jni_ref.as_obj(),
-                "level",
-                FieldType::Object(Cls::Level),
-            )?
-            .l()?;
-        if level.is_null() {
-            return Ok(());
+    for entity in world.get_entities()? {
+        if let Some(target) = process_entity(
+            &entity,
+            local_id,
+            player_pos,
+            range_sq,
+            want_player,
+            want_mob,
+            &prev_pos,
+        ) {
+            out.push(target);
         }
-
-        let iterable = mapping
-            .call_method(Cls::Level, &level, "entitiesForRendering", &[])?
-            .l()?;
-        let iterator = mapping
-            .call_method(Cls::Iterable, &iterable, "iterator", &[])?
-            .l()?;
-
-        loop {
-            if !mapping
-                .call_method(Cls::Iterator, &iterator, "hasNext", &[])?
-                .z()?
-            {
-                break;
-            }
-            // One frame per entity bounds the local-ref table no matter how
-            // many entities the world contains.
-            let target = env.with_local_frame(64, |_| -> anyhow::Result<Option<EntityTarget>> {
-                let entity = mapping
-                    .call_method(Cls::Iterator, &iterator, "next", &[])?
-                    .l()?;
-                Ok(process_entity(
-                    mapping,
-                    &entity,
-                    local_id,
-                    player_pos,
-                    range_sq,
-                    want_player,
-                    want_mob,
-                    &prev_pos,
-                ))
-            })?;
-            if let Some(target) = target {
-                out.push(target);
-            }
-        }
-        Ok(())
-    })?;
+    }
 
     Ok(out)
 }
 
-/// Turns one entity object into an [`EntityTarget`], or `None` if it is not a
+/// Turns one [`Entity`] into an [`EntityTarget`], or `None` if it is not a
 /// wanted target. Errors are swallowed per-field so one bad entity cannot
 /// abort the whole gather.
 #[allow(clippy::too_many_arguments)]
 fn process_entity(
-    mapping: &Mapping,
-    entity: &JObject,
+    entity: &Entity,
     local_id: i32,
     player_pos: V3,
     range_sq: f64,
@@ -722,56 +586,31 @@ fn process_entity(
 ) -> Option<EntityTarget> {
     // Cheap distance gate first — a far entity then costs just this one JNI
     // call. Skipped entirely if `distanceToSqr` is not exposed by this build.
-    if let Some(dist_sq) = mapping
-        .call_method(
-            Cls::Entity,
-            entity,
-            "distanceToSqr",
-            &[
-                JValue::Double(player_pos.x),
-                JValue::Double(player_pos.y),
-                JValue::Double(player_pos.z),
-            ],
-        )
-        .ok()
-        .and_then(|value| value.d().ok())
-    {
+    if let Ok(dist_sq) = entity.distance_to_sqr(player_pos.x, player_pos.y, player_pos.z) {
         if dist_sq > range_sq {
             return None;
         }
     }
 
-    let kind = if want_player && mapping.is_instance_of(Cls::Player, entity).unwrap_or(false) {
+    let kind = if want_player && entity.instance_of::<Player>() {
         TargetKind::Player
-    } else if want_mob && mapping.is_instance_of(Cls::Mob, entity).unwrap_or(false) {
+    } else if want_mob && entity.instance_of::<Mob>() {
         TargetKind::Mob
     } else {
         return None;
     };
 
-    let id = mapping
-        .call_method(Cls::Entity, entity, "getId", &[])
-        .ok()?
-        .i()
-        .ok()?;
+    let id = entity.id().ok()?;
     if id == local_id {
         return None;
     }
 
-    let pos = read_vec3(mapping, entity, "position")?;
-    let width = mapping
-        .call_method(Cls::Entity, entity, "getBbWidth", &[])
-        .ok()?
-        .f()
-        .ok()? as f64;
-    let height = mapping
-        .call_method(Cls::Entity, entity, "getBbHeight", &[])
-        .ok()?
-        .f()
-        .ok()? as f64;
+    let pos: V3 = entity.get_position().ok()?.into();
+    let width = entity.bb_width().ok()? as f64;
+    let height = entity.bb_height().ok()? as f64;
 
-    let name = read_name(mapping, entity).unwrap_or_default();
-    let (health, max_health) = read_health(mapping, entity).unwrap_or((0.0, 0.0));
+    let name = read_name(entity);
+    let (health, max_health) = read_health(entity).unwrap_or((0.0, 0.0));
 
     Some(EntityTarget {
         id,
@@ -786,188 +625,67 @@ fn process_entity(
     })
 }
 
-/// Calls a no-arg `Vec3`-returning method and reads its `x`/`y`/`z`.
-fn read_vec3(mapping: &Mapping, obj: &JObject, method: &str) -> Option<V3> {
-    let vec3 = mapping
-        .call_method(Cls::Entity, obj, method, &[])
-        .ok()?
-        .l()
-        .ok()?;
-    Some(V3 {
-        x: mapping
-            .get_field(Cls::Vec3, &vec3, "x", FieldType::Double)
-            .ok()?
-            .d()
-            .ok()?,
-        y: mapping
-            .get_field(Cls::Vec3, &vec3, "y", FieldType::Double)
-            .ok()?
-            .d()
-            .ok()?,
-        z: mapping
-            .get_field(Cls::Vec3, &vec3, "z", FieldType::Double)
-            .ok()?
-            .d()
-            .ok()?,
-    })
-}
-
-/// Reads an entity's display name via `getName().getString()`.
-fn read_name(mapping: &Mapping, entity: &JObject) -> anyhow::Result<String> {
-    let component = mapping
-        .call_method(Cls::Entity, entity, "getName", &[])?
-        .l()?;
-    if component.is_null() {
-        return Ok(String::new());
-    }
-    let string = mapping
-        .call_method(Cls::Component, &component, "getString", &[])?
-        .l()?;
-    let mut name = mapping.get_string(string)?;
+/// Reads an entity's display name, truncated to a sane label length.
+fn read_name(entity: &Entity) -> String {
+    let name = entity
+        .get_name()
+        .and_then(|component| component.get_string())
+        .unwrap_or_default();
     if name.chars().count() > 24 {
-        name = name.chars().take(24).collect();
+        name.chars().take(24).collect()
+    } else {
+        name
     }
-    Ok(name)
 }
 
 /// Reads `(health, maxHealth)` for a living entity.
-fn read_health(mapping: &Mapping, entity: &JObject) -> anyhow::Result<(f32, f32)> {
-    let health = mapping
-        .call_method(Cls::LivingEntity, entity, "getHealth", &[])?
-        .f()?;
-    let max_health = mapping
-        .call_method(Cls::LivingEntity, entity, "getMaxHealth", &[])?
-        .f()?;
-    Ok((health, max_health))
+fn read_health(entity: &Entity) -> anyhow::Result<(f32, f32)> {
+    let living = entity.as_living();
+    Ok((living.get_health()?, living.get_max_health()?))
 }
 
 /// Scans loaded chunks around the player for container block entities.
 fn gather_chests() -> anyhow::Result<Vec<ChestTarget>> {
     let mc = minecraft();
-    let mapping = mapping();
+    let (Some(world), Some(player)) = (mc.world()?, mc.player()?) else {
+        return Ok(Vec::new());
+    };
 
-    let mut env = mapping.get_env()?;
+    let player_pos: V3 = player.entity.get_position()?.into();
+    let pcx = (player_pos.x / 16.0).floor() as i32;
+    let pcz = (player_pos.z / 16.0).floor() as i32;
+
     let mut out: Vec<ChestTarget> = Vec::new();
-
-    env.with_local_frame(32, |env| -> anyhow::Result<()> {
-        let level = mapping
-            .get_field(
-                Cls::Minecraft,
-                mc.jni_ref.as_obj(),
-                "level",
-                FieldType::Object(Cls::Level),
-            )?
-            .l()?;
-        if level.is_null() {
-            return Ok(());
+    for cx in (pcx - CHEST_CHUNK_RADIUS)..=(pcx + CHEST_CHUNK_RADIUS) {
+        for cz in (pcz - CHEST_CHUNK_RADIUS)..=(pcz + CHEST_CHUNK_RADIUS) {
+            scan_chunk(&world, cx, cz, &mut out)?;
         }
-
-        let Some(player) = mc.player()? else {
-            return Ok(());
-        };
-        let player_pos = player.entity.get_position()?;
-        let pcx = (player_pos.0 / 16.0).floor() as i32;
-        let pcz = (player_pos.2 / 16.0).floor() as i32;
-
-        for cx in (pcx - CHEST_CHUNK_RADIUS)..=(pcx + CHEST_CHUNK_RADIUS) {
-            for cz in (pcz - CHEST_CHUNK_RADIUS)..=(pcz + CHEST_CHUNK_RADIUS) {
-                // One frame per chunk keeps the block-entity locals bounded.
-                env.with_local_frame(128, |_| -> anyhow::Result<()> {
-                    scan_chunk(mapping, &level, cx, cz, &mut out)
-                })?;
-            }
-        }
-        Ok(())
-    })?;
+    }
 
     Ok(out)
 }
 
 /// Adds every container block entity of one chunk to `out`.
-fn scan_chunk(
-    mapping: &Mapping,
-    level: &JObject,
-    cx: i32,
-    cz: i32,
-    out: &mut Vec<ChestTarget>,
-) -> anyhow::Result<()> {
-    let chunk = mapping
-        .call_method(
-            Cls::LevelReader,
-            level,
-            "getChunk",
-            &[JValue::Int(cx), JValue::Int(cz)],
-        )?
-        .l()?;
-    if chunk.is_null() {
+fn scan_chunk(world: &World, cx: i32, cz: i32, out: &mut Vec<ChestTarget>) -> anyhow::Result<()> {
+    let Some(chunk) = world.get_chunk(cx, cz)? else {
         return Ok(());
-    }
+    };
 
-    let map = mapping
-        .call_method(Cls::LevelChunk, &chunk, "getBlockEntities", &[])?
-        .l()?;
-    if map.is_null() {
-        return Ok(());
-    }
-    let values = mapping.call_method(Cls::Map, &map, "values", &[])?.l()?;
-    let iterator = mapping
-        .call_method(Cls::Iterable, &values, "iterator", &[])?
-        .l()?;
-
-    loop {
-        if !mapping
-            .call_method(Cls::Iterator, &iterator, "hasNext", &[])?
-            .z()?
-        {
-            break;
+    for block_entity in chunk.get_block_entities()? {
+        if !block_entity.is_container() {
+            continue;
         }
-        let block_entity = mapping
-            .call_method(Cls::Iterator, &iterator, "next", &[])?
-            .l()?;
-        if is_container(mapping, &block_entity) {
-            if let Some(pos) = block_entity_pos(mapping, &block_entity) {
-                out.push(ChestTarget { pos });
-            }
+        if let Ok(pos) = block_entity.get_block_pos() {
+            out.push(ChestTarget {
+                pos: V3 {
+                    x: pos.x() as f64,
+                    y: pos.y() as f64,
+                    z: pos.z() as f64,
+                },
+            });
         }
     }
     Ok(())
-}
-
-/// True for chest / trapped chest / ender chest / barrel / shulker box.
-fn is_container(mapping: &Mapping, block_entity: &JObject) -> bool {
-    // `ChestBlockEntity` already covers trapped chests (a subclass).
-    const KINDS: [Cls; 4] = [
-        Cls::ChestBlockEntity,
-        Cls::EnderChestBlockEntity,
-        Cls::BarrelBlockEntity,
-        Cls::ShulkerBoxBlockEntity,
-    ];
-    KINDS
-        .iter()
-        .any(|&kind| mapping.is_instance_of(kind, block_entity).unwrap_or(false))
-}
-
-/// Reads a block entity's `BlockPos` as a [`V3`].
-fn block_entity_pos(mapping: &Mapping, block_entity: &JObject) -> Option<V3> {
-    let block_pos = mapping
-        .call_method(Cls::BlockEntity, block_entity, "getBlockPos", &[])
-        .ok()?
-        .l()
-        .ok()?;
-    let axis = |name: &str| -> Option<f64> {
-        Some(
-            mapping
-                .call_method(Cls::Vec3i, &block_pos, name, &[])
-                .ok()?
-                .i()
-                .ok()? as f64,
-        )
-    };
-    Some(V3 {
-        x: axis("getX")?,
-        y: axis("getY")?,
-        z: axis("getZ")?,
-    })
 }
 
 // --- drawing ---------------------------------------------------------------

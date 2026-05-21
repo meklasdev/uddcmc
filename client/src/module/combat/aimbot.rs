@@ -1,8 +1,6 @@
-use crate::mapping::FieldType;
-use crate::mapping::MinecraftClassType;
+use crate::mapping::JavaObject;
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleSetting};
-use crate::state::{mapping, minecraft};
-use jni::objects::JValue;
+use crate::state::minecraft;
 
 #[derive(Debug)]
 pub struct AimbotModule {
@@ -51,24 +49,20 @@ impl Module for AimbotModule {
             return Ok(()); // not in a world — nothing to do
         };
 
-        let entities = world.get_entities()?;
         let range = self.get_range() as f64;
-        let mapping = mapping();
-
         let player_pos = player.entity.get_position()?;
         let mut closest_dist = range;
         let mut target_entity = None;
-        let env = mapping.get_env()?;
 
-        for entity in entities {
-            if env.is_same_object(entity.jni_ref.as_obj(), player.entity.jni_ref.as_obj())? {
+        for entity in world.get_entities()? {
+            if entity.is_same(&player.entity) {
                 continue;
             }
 
             let entity_pos = entity.get_position()?;
-            let dist = ((player_pos.0 - entity_pos.0).powi(2)
-                + (player_pos.1 - entity_pos.1).powi(2)
-                + (player_pos.2 - entity_pos.2).powi(2))
+            let dist = ((player_pos.x() - entity_pos.x()).powi(2)
+                + (player_pos.y() - entity_pos.y()).powi(2)
+                + (player_pos.z() - entity_pos.z()).powi(2))
             .sqrt();
 
             if dist <= closest_dist {
@@ -79,31 +73,16 @@ impl Module for AimbotModule {
 
         if let Some(target) = target_entity {
             let target_pos = target.get_position()?;
-            let dx = target_pos.0 - player_pos.0;
-            let dy = target_pos.1 - player_pos.1; // This is simplistic, usually need eye height
-            let dz = target_pos.2 - player_pos.2;
+            let dx = target_pos.x() - player_pos.x();
+            let dy = target_pos.y() - player_pos.y(); // This is simplistic, usually need eye height
+            let dz = target_pos.z() - player_pos.z();
 
             let dist = (dx * dx + dz * dz).sqrt();
             let yaw = (dz.atan2(dx) * 180.0 / std::f64::consts::PI) as f32 - 90.0;
             let pitch = (-(dy.atan2(dist)) * 180.0 / std::f64::consts::PI) as f32;
 
-            // Set yaw
-            mapping.set_field(
-                MinecraftClassType::Entity,
-                player.entity.jni_ref.as_obj(),
-                "yRot",
-                FieldType::Float,
-                JValue::Float(yaw),
-            )?;
-
-            // Set pitch
-            mapping.set_field(
-                MinecraftClassType::Entity,
-                player.entity.jni_ref.as_obj(),
-                "xRot",
-                FieldType::Float,
-                JValue::Float(pitch),
-            )?;
+            player.entity.set_yaw(yaw)?;
+            player.entity.set_pitch(pitch)?;
         }
 
         Ok(())
