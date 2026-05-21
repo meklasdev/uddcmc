@@ -51,6 +51,9 @@ unsafe fn on_frame() {
     }
 
     check_tick();
+    // Ease combat-module rotations toward their target every frame — this is
+    // what makes aiming smooth rather than the visible 20 Hz tick steps.
+    crate::module::combat::rotation::update();
     render_overlay();
 }
 

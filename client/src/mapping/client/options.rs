@@ -26,6 +26,19 @@ impl Options {
             Ok(OptionInstance::new(mapping().new_global_ref(option)?))
         })
     }
+
+    /// The mouse-sensitivity option.
+    pub fn sensitivity(&self) -> anyhow::Result<OptionInstance> {
+        self.in_frame(|| {
+            let option = self
+                .get_field(
+                    "sensitivity",
+                    FieldType::Object(MinecraftClassType::OptionInstance),
+                )?
+                .l()?;
+            Ok(OptionInstance::new(mapping().new_global_ref(option)?))
+        })
+    }
 }
 
 /// A single Minecraft `OptionInstance` — one configurable game option.
@@ -49,6 +62,17 @@ impl OptionInstance {
             Ok(mapping()
                 .call_method(MinecraftClassType::Integer, &value, "intValue", &[])?
                 .i()?)
+        })
+    }
+
+    /// The current value, read as a `double` — the option's boxed value is
+    /// unwrapped through `Double.doubleValue()`.
+    pub fn get_double(&self) -> anyhow::Result<f64> {
+        self.in_frame(|| {
+            let value = self.call_method("get", &[])?.l()?;
+            Ok(mapping()
+                .call_method(MinecraftClassType::Double, &value, "doubleValue", &[])?
+                .d()?)
         })
     }
 }

@@ -49,6 +49,29 @@ impl LocalPlayer {
             jni_ref: player_ref,
         })
     }
+
+    /// The melee attack strength, `0.0..=1.0` — `1.0` once the attack cooldown
+    /// has fully recharged. Below `1.0` the next hit deals reduced damage.
+    pub fn attack_strength_scale(&self) -> anyhow::Result<f32> {
+        Ok(self
+            .call_method("getAttackStrengthScale", &[JValue::Float(0.5)])?
+            .f()?)
+    }
+
+    /// Plays the main-hand swing animation (and sends it to the server).
+    pub fn swing(&self) -> anyhow::Result<()> {
+        self.in_frame(|| {
+            let hand = mapping()
+                .get_static_field(
+                    MinecraftClassType::InteractionHand,
+                    "MAIN_HAND",
+                    FieldType::Object(MinecraftClassType::InteractionHand),
+                )?
+                .l()?;
+            self.call_method("swing", &[JValue::Object(&hand)])?;
+            Ok(())
+        })
+    }
 }
 
 impl Abilities {
@@ -73,6 +96,12 @@ impl Abilities {
     /// Whether the player is currently flying.
     pub fn is_flying(&self) -> anyhow::Result<bool> {
         Ok(self.get_field("flying", FieldType::Boolean)?.z()?)
+    }
+
+    /// Sets the creative-fly speed (vanilla default `0.05`).
+    pub fn set_flying_speed(&self, speed: f32) -> anyhow::Result<()> {
+        self.call_method("setFlyingSpeed", &[JValue::Float(speed)])?;
+        Ok(())
     }
 
     #[allow(dead_code)]

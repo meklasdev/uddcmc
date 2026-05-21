@@ -33,12 +33,30 @@ impl Entity {
         Ok(self.call_method("getId", &[])?.i()?)
     }
 
-    /// The entity's world position.
+    /// The entity's world position (feet).
     pub fn get_position(&self) -> anyhow::Result<Vec3> {
         self.in_frame(|| {
             let vec3 = self.call_method("position", &[])?.l()?;
             Vec3::read(&vec3)
         })
+    }
+
+    /// The entity's eye position — the origin to aim rotations from.
+    pub fn get_eye_position(&self) -> anyhow::Result<Vec3> {
+        self.in_frame(|| {
+            let vec3 = self.call_method("getEyePosition", &[])?.l()?;
+            Vec3::read(&vec3)
+        })
+    }
+
+    /// The entity's yaw, in degrees.
+    pub fn get_yaw(&self) -> anyhow::Result<f32> {
+        Ok(self.call_method("getYRot", &[])?.f()?)
+    }
+
+    /// The entity's pitch, in degrees.
+    pub fn get_pitch(&self) -> anyhow::Result<f32> {
+        Ok(self.call_method("getXRot", &[])?.f()?)
     }
 
     /// Squared distance from this entity to a world point.
@@ -71,14 +89,16 @@ impl Entity {
         Ok(())
     }
 
-    /// Sets the entity's yaw (`yRot`), in degrees.
-    pub fn set_yaw(&self, yaw: f32) -> anyhow::Result<()> {
-        self.set_field("yRot", FieldType::Float, JValue::Float(yaw))
-    }
-
-    /// Sets the entity's pitch (`xRot`), in degrees.
-    pub fn set_pitch(&self, pitch: f32) -> anyhow::Result<()> {
-        self.set_field("xRot", FieldType::Float, JValue::Float(pitch))
+    /// Sets the entity's yaw and pitch, in degrees. The previous-tick rotation
+    /// (`yRotO` / `xRotO`) is written too, so Minecraft renders the camera
+    /// exactly at this rotation instead of interpolating toward it — the
+    /// per-frame rotation system supplies the smoothing itself.
+    pub fn set_rotation(&self, yaw: f32, pitch: f32) -> anyhow::Result<()> {
+        self.call_method("setYRot", &[JValue::Float(yaw)])?;
+        self.call_method("setXRot", &[JValue::Float(pitch)])?;
+        self.set_field("yRotO", FieldType::Float, JValue::Float(yaw))?;
+        self.set_field("xRotO", FieldType::Float, JValue::Float(pitch))?;
+        Ok(())
     }
 
     pub fn get_fall_distance(&self) -> anyhow::Result<f64> {

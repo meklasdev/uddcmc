@@ -1,6 +1,7 @@
 use crate::mapping::client::game_renderer::GameRenderer;
 use crate::mapping::client::gamemode::MultiPlayerGameMode;
 use crate::mapping::client::options::Options;
+use crate::mapping::client::screen::Screen;
 use crate::mapping::client::window::Window;
 use crate::mapping::client::world::World;
 use crate::mapping::entity::player::LocalPlayer;
@@ -136,13 +137,46 @@ impl Minecraft {
 
     /// Whether no screen (menu / inventory / …) is currently open.
     pub fn current_screen_is_null(&self) -> bool {
+        self.current_screen() == Screen::None
+    }
+
+    /// The Minecraft screen currently open. Best-effort: any JNI failure — or
+    /// an unrecognized screen — reports [`Screen::Unknown`], which callers
+    /// treat as "a screen is open".
+    pub fn current_screen(&self) -> Screen {
         self.in_frame(|| {
             let screen = self
                 .get_field("screen", FieldType::Object(MinecraftClassType::Screen))?
                 .l()?;
-            Ok(screen.is_null())
+            if screen.is_null() {
+                return Ok(Screen::None);
+            }
+
+            let is = |class| {
+                mapping()
+                    .is_instance_of(class, &screen)
+                    .unwrap_or(false)
+            };
+            // Specific screens first — `InventoryScreen` / `CraftingScreen`
+            // both extend `AbstractContainerScreen`.
+            let screen = if is(MinecraftClassType::ChatScreen) {
+                Screen::Chat
+            } else if is(MinecraftClassType::CreativeModeInventoryScreen)
+                || is(MinecraftClassType::InventoryScreen)
+            {
+                Screen::Inventory
+            } else if is(MinecraftClassType::CraftingScreen) {
+                Screen::Crafting
+            } else if is(MinecraftClassType::AbstractContainerScreen) {
+                Screen::Container
+            } else if is(MinecraftClassType::PauseScreen) {
+                Screen::Menu
+            } else {
+                Screen::Unknown
+            };
+            Ok(screen)
         })
-        .unwrap_or(true)
+        .unwrap_or(Screen::Unknown)
     }
 
     /// Reads a world-scoped object field of `Minecraft`, returning `Ok(None)`
