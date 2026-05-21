@@ -49,11 +49,17 @@ pub fn inject(pid: u32) -> Result<(), InjectError> {
 /// Connects to the agent's command server and sends a [`Command::Reload`].
 fn send_reload(client_lib: &Path) -> Result<(), InjectError> {
     let absolute = std::path::absolute(client_lib).map_err(InjectError::Path)?;
+    // The client keeps its config in the directory the injector runs from.
+    let config_dir = std::env::current_dir().map_err(InjectError::Path)?;
 
     let mut stream = connect_with_retry()?;
     let _ = stream.set_write_timeout(Some(WRITE_TIMEOUT));
 
-    let command = Command::Reload(absolute).encode();
+    let command = Command::Reload {
+        library: absolute,
+        config_dir,
+    }
+    .encode();
     info!("sending command: {command}");
     stream
         .write_all(command.as_bytes())

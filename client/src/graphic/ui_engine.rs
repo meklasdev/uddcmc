@@ -61,7 +61,7 @@ pub fn gather_egui_inputs(
         return raw_input;
     }
 
-    let mouse = MOUSE_STATE.lock().unwrap();
+    let mut mouse = MOUSE_STATE.lock().unwrap();
     let current_pos = egui::pos2(
         (mouse.x as f32) / scale_factor,
         (mouse.y as f32) / scale_factor,
@@ -92,6 +92,18 @@ pub fn gather_egui_inputs(
             modifiers: Default::default(),
         });
         state.last_right_down = mouse.right_down;
+    }
+
+    // Drain the accumulated scroll-wheel delta into an egui event.
+    let (scroll_x, scroll_y) = (mouse.scroll_x, mouse.scroll_y);
+    mouse.scroll_x = 0.0;
+    mouse.scroll_y = 0.0;
+    if scroll_x != 0.0 || scroll_y != 0.0 {
+        raw_input.events.push(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Line,
+            delta: egui::vec2(scroll_x, scroll_y),
+            modifiers: Default::default(),
+        });
     }
 
     raw_input
@@ -218,6 +230,12 @@ pub unsafe fn render_egui_ui() {
 }
 
 pub fn call_panic() {
+    // Persist the user's setup before tearing it down: Panic does not go
+    // through the GUI's close handler (which is what normally saves), and the
+    // modules are about to be force-disabled for the unload — so save now,
+    // while they still hold the state the user actually chose.
+    crate::config::save();
+
     for handle in crate::state::client().modules.handles() {
         let Ok(mut module) = handle.lock() else {
             continue;

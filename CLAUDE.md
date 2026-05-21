@@ -41,7 +41,7 @@ This is the core control flow and spans `injector`, `protocol`, `agent_loader`, 
 
 1. `injector` injects `libagent_loader.so`/`.dll` into the JVM process — ptrace (`ptrace-inject`) on Linux, `dll-syringe` on Windows.
 2. `agent_loader`'s `#[ctor]` `agent_onload()` starts a TCP server on `protocol::SOCKET_ADDR` (**`127.0.0.1:7878`** — defined once, in `protocol`).
-3. `injector` connects and sends a `protocol::Command::Reload(<absolute-path-to-libclient>)`.
+3. `injector` connects and sends a `protocol::Command::Reload { library, config_dir }` — the absolute libclient path plus the injector's own working directory. The agent loader exports `config_dir` as the `DARK_CONFIG_DIR` env var so the client knows where to keep its config.
 4. `agent_loader`'s `library` module copies the library to a uniquely named temp file (avoids file locks), `dlopen`s it, and calls the exported `initialize_client`.
 5. Re-injecting repeats step 3 → `library::reload` cleans up and drops the old library (calling `cleanup_client`) before loading the new one. This is the hot-reload path.
 
@@ -53,9 +53,11 @@ This is the core control flow and spans `injector`, `protocol`, `agent_loader`, 
 
 **Rendering & ticking** (`graphic/hook.rs`): `install_hooks` hooks the buffer-swap function (`glfwSwapBuffers` / `wglSwapBuffers`, via `ilhook`) so `on_frame` runs every frame — it renders the egui overlay (`ui_engine.rs`) and calls `check_tick`. `check_tick` compares the player's tick count to detect new game ticks and calls `client().modules.tick()`. Tick logic runs on the render thread, not a Minecraft thread. Per-platform GL / hook details live behind `graphic/platform/` (`gl_proc_address`, `open_glfw_library`, `frame_hook_targets`).
 
-**Input** (`graphic/input.rs`): swaps GLFW key/mouse/cursor callbacks. **Right Shift** (key `344`) toggles the GUI; while the GUI is open, input events are consumed instead of forwarded to Minecraft. Module keybinds toggle modules on key press.
+**Input** (`graphic/input.rs`): swaps GLFW key/mouse/cursor/scroll callbacks. **Right Shift** (key `344`) toggles the GUI, **Esc** closes it; while the GUI is open, input events (including the scroll wheel, which is forwarded to egui instead) are consumed rather than passed to Minecraft. Module keybinds toggle modules on key press.
 
-**Module system** (`module/`): implement the `Module` trait (`on_start`/`on_stop`/`on_tick`, all returning `anyhow::Result<()>`; optional `handle_packet` — see *Packet layer* below) plus `ModuleData` accessors. Register new modules in `register_modules()` in `client/src/lib.rs`. Modules carry typed `ModuleSetting`s (Toggle/Slider/Choice/Color). Each module has a stable identity — the `ModuleId` enum — and is registered/looked up by it (never by a name string). The `ModuleRegistry` (`module/registry.rs`) is a `DashMap<ModuleId, _>`; reach it through `client().modules`.
+**Module system** (`module/`): implement the `Module` trait (`on_start`/`on_stop`/`on_tick`, all returning `anyhow::Result<()>`; optional `handle_packet` — see *Packet layer* below) plus `ModuleData` accessors. Register new modules in `register_modules()` in `client/src/lib.rs`. Modules carry typed `ModuleSetting`s (Toggle/Slider/Choice/Color). Each module has a stable identity — the `ModuleId` enum — and is registered/looked up by it (never by a name string). The `ModuleRegistry` (`module/registry.rs`) is a `DashMap<ModuleId, _>`; reach it through `client().modules`. `register()` also snapshots each module's factory defaults, which `ModuleRegistry::reset_settings()` (the GUI's "Reset Settings" button) restores.
+
+**Config persistence** (`config.rs`): each module's keybind, setting values and enabled state — plus the GUI layout (category-panel positions and which modules are expanded) — are written to `dark_client_config.json` so they survive a re-injection. The file lives in the **injector's working directory** (passed via `DARK_CONFIG_DIR`) — deliberately *not* in `.minecraft`, to leave no trace in the game directory; it falls back to the process working directory if the variable is unset. `config::save()` runs whenever the user changes something (GUI close, module toggle, "Reset Settings", and before a Panic unload); `config::load()` runs once, right after `register_modules()`, and re-applies the saved state — re-enabling modules that were left on.
 
 **Game wrappers** (`mapping/client/`, `mapping/entity/`): `Minecraft` holds only what exists from the main menu onward — the `getInstance()` handle and the `Window`. The world-scoped objects are lazy accessors — `player()`, `world()`, `game_mode()` return `Result<Option<_>>`, where `Ok(None)` means "not in a world". This lets the client be injected from the main menu; world-dependent modules early-return when `None`. Each wrapper of a live JVM object derives `MappedObject` (`#[derive(MappedObject)]`, from the `mapping_derive` crate), which gives it `jni_ref()`, `class_type()`, and the `call_method`/`get_field`/`set_field`/`instance_of`/`is_same`/`equals` helpers. Immutable value types (`Vec3`, `BlockPos`, …) are instead read once into plain Rust fields — a value-snapshot, no JNI handle retained.
 
@@ -86,6 +88,10 @@ Three tiers (`cargo test --workspace` runs T1 + T2):
 
 ## Logs
 
-- `injector` → `app.log` (in its working directory)
-- `agent_loader` → `agent_loader.log`
-- `client` → `dark_client.log` (in `.minecraft`)
+All three log files — and the client config — are written to the **injector's
+working directory** (the agent loader and client receive it via the
+`DARK_CONFIG_DIR` env var), so nothing is left in `.minecraft`:
+
+- `injector` → `app.log`
+- `agent_loader` → `agent_loader.log` (set up lazily, on the first command, once the directory is known)
+- `client` → `dark_client.log`

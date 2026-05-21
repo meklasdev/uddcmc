@@ -6,17 +6,26 @@ use std::sync::{Arc, Mutex};
 use dashmap::DashMap;
 use log::error;
 
-use crate::module::{Module, ModuleId, ModuleType};
+use crate::module::{KeyboardKey, Module, ModuleId, ModuleSetting, ModuleType};
 use crate::net::packet::{Packet, PacketAction};
 
 /// A shared, lockable handle to one module.
 pub type ModuleHandle = Arc<Mutex<ModuleType>>;
+
+/// A module's factory defaults — the keybind and settings it was registered
+/// with. Kept so "Reset Settings" can restore them.
+struct ModuleDefaults {
+    key_bind: KeyboardKey,
+    settings: Vec<ModuleSetting>,
+}
 
 /// Holds every registered module. Backed by a `DashMap` so the render thread
 /// can read it each frame without contending on a single global lock.
 #[derive(Default)]
 pub struct ModuleRegistry {
     modules: DashMap<ModuleId, ModuleHandle>,
+    /// Factory defaults captured at registration, keyed like `modules`.
+    defaults: DashMap<ModuleId, ModuleDefaults>,
 }
 
 impl ModuleRegistry {
@@ -25,14 +34,43 @@ impl ModuleRegistry {
         Self::default()
     }
 
-    /// Registers a module under its [`ModuleId`].
+    /// Registers a module under its [`ModuleId`], capturing its factory
+    /// defaults so they can be restored later.
     pub fn register<M>(&self, module: M)
     where
         M: Module + Send + Sync + 'static,
     {
         let module: ModuleType = Box::new(module);
-        let id = module.get_module_data().id;
+        let data = module.get_module_data();
+        let id = data.id;
+        self.defaults.insert(
+            id,
+            ModuleDefaults {
+                key_bind: data.key_bind,
+                settings: data.settings.clone(),
+            },
+        );
         self.modules.insert(id, Arc::new(Mutex::new(module)));
+    }
+
+    /// Restores every module to its factory defaults: default keybind, default
+    /// setting values, and disabled. Backs the GUI's "Reset Settings" button.
+    pub fn reset_settings(&self) {
+        for entry in self.modules.iter() {
+            let Some(defaults) = self.defaults.get(entry.key()) else {
+                continue;
+            };
+            let Ok(mut module) = entry.value().lock() else {
+                continue;
+            };
+            if module.get_module_data().enabled {
+                let _ = module.on_stop();
+            }
+            let data = module.get_module_data_mut();
+            data.key_bind = defaults.key_bind;
+            data.settings = defaults.settings.clone();
+            data.enabled = false;
+        }
     }
 
     /// A handle to one module by id.

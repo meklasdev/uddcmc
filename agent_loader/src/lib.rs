@@ -26,7 +26,8 @@ pub(crate) fn is_running() -> bool {
 /// Runs automatically when the agent library is loaded into the JVM process.
 #[ctor]
 fn agent_onload() {
-    logging::init();
+    // File logging is set up once the first command reveals where to write it
+    // (the injector's directory) — see `command::handle_connection`.
     info!("agent loader initialized");
 
     platform::install_signal_handlers();

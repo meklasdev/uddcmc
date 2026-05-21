@@ -8,7 +8,7 @@ pub mod render;
 pub type ModuleType = Box<dyn Module + Send + Sync>;
 
 #[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum ModuleCategory {
     Combat,
     Movement,
@@ -33,7 +33,7 @@ impl ModuleCategory {
 }
 
 /// Stable identifier of a module — what it is registered and looked up by.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum ModuleId {
     Fly,
     NoFall,

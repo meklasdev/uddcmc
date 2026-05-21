@@ -3,6 +3,7 @@
 #![allow(dead_code)]
 
 extern crate jni;
+mod config;
 mod graphic;
 mod mapping;
 mod module;
@@ -45,10 +46,13 @@ pub extern "C" fn initialize_client() {
         return;
     }
 
+    // The log lives alongside the config, in the injector's directory — never
+    // in `.minecraft` — see `config::base_dir`.
+    let log_path = config::base_dir().join("dark_client.log");
     match WriteLogger::init(
         LevelFilter::Debug,
         Config::default(),
-        File::create("dark_client.log").unwrap(),
+        File::create(&log_path).unwrap(),
     ) {
         Ok(_) => info!("Logger initialized"),
         Err(e) => eprintln!("Error during logger initialization: {:?}", e),
@@ -73,6 +77,8 @@ pub extern "C" fn initialize_client() {
             return;
         }
         register_modules();
+        // Restore saved keybinds, settings and enabled state.
+        config::load();
         if let Err(e) = install_hooks() {
             error!("Failed to install hooks: {e}");
         }
