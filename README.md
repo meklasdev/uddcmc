@@ -29,16 +29,19 @@ DarkClient runs on **vanilla Minecraft**, **Fabric**, and **Forge/NeoForge**. It
 
 - **🔧 Dynamic Library Injection**: Hot-swappable module system without requiring game restarts
 - **🎨 Cross-Platform GUI**: Beautiful injector interface built with egui
-- **⌨️ Real-time Input Handling**: Advanced keyboard event processing for module toggling
-- **🗺️ Smart Mapping System**: Automatic obfuscation handling through JSON-based mappings
+- **🖥️ In-Game ClickGUI**: egui overlay with draggable category panels, per-module settings, scrollable lists and rebindable keys
+- **⌨️ Real-time Input Handling**: Advanced keyboard/mouse event processing for module toggling
+- **🗺️ Smart Mapping System**: Automatic obfuscation handling — bundled mappings for obfuscated builds, runtime JNI reflection for unobfuscated ones
+- **📡 Packet Layer**: Netty-pipeline interception (pure JNI, no JVMTI) for packet-level modules — powers NoFall and Velocity / Anti-Knockback
 - **🔄 Module Architecture**: Extensible module system for easy feature development
+- **💾 Persistent Config**: keybinds, settings, enabled modules and GUI layout saved across injections
 - **🧩 Mod Loader Support**: Works with vanilla Minecraft, Fabric, and Forge/NeoForge
 - **📊 Comprehensive Logging**: Detailed logging system for debugging and monitoring
 - **🔒 Thread-Safe Design**: Robust multi-threaded architecture with proper synchronization
 
 ## 🏗️ Architecture
 
-A Cargo workspace of four crates plus an `xtask` helper:
+A Cargo workspace of five crates plus an `xtask` helper:
 
 ### **Protocol** (`protocol/`)
 The shared contract between the injector and the agent: the localhost
@@ -61,9 +64,16 @@ A `cdylib` injected into the JVM. On load it provides:
 ### **Client Library** (`client/`)
 The core modification framework featuring:
 - JNI integration with Minecraft's runtime
-- Module system for game modifications
+- Module system for game modifications (combat, movement, render)
 - Mapping system for obfuscation handling
-- Input processing and event management
+- An in-game ClickGUI overlay, input processing and event management
+- A packet layer (`net/`) that injects a handler into Minecraft's Netty pipeline
+- Persistent configuration of keybinds, settings and GUI layout
+
+### **Mapping Derive** (`mapping_derive/`)
+A `proc-macro` crate providing `#[derive(MappedObject)]` for the JVM-object
+wrappers in the client — generates the JNI helper methods so each game
+wrapper stays a thin, safe handle.
 
 ## 📋 Prerequisites
 
@@ -166,7 +176,9 @@ impl Module for CustomModule {
 }
 ```
 
-Register it in `register_modules()` in `client/src/lib.rs`.
+Register it in `register_modules()` in `client/src/lib.rs`. Modules that need
+to read or rewrite network packets can also implement the optional
+`handle_packet` method — see NoFall and Velocity for examples.
 ```text
 DarkClient/
 ├── 📁 protocol/             # Shared injector ⇆ agent IPC contract
@@ -176,9 +188,12 @@ DarkClient/
 │   └── 📁 src/
 │       ├── 📄 lib.rs        # Entry points (initialize_client / cleanup_client)
 │       ├── 📄 state.rs      # Global client + mapping state
+│       ├── 📄 config.rs     # Persistent config (keybinds, settings, GUI layout)
 │       ├── 📁 mapping/      # Minecraft mapping system (obfuscated + reflected)
 │       ├── 📁 graphic/      # Overlay, hooks, input, platform seam
-│       └── 📁 module/       # Module framework + registry
+│       ├── 📁 module/       # Module framework + registry
+│       └── 📁 net/          # Netty packet layer (packet structs + dispatch)
+├── 📁 mapping_derive/       # proc-macro: #[derive(MappedObject)]
 ├── 📁 xtask/                # Workspace task runner (cargo xtask e2e)
 ├── 📄 mappings.json         # Minecraft obfuscation mappings
 ├── 📄 conversion.py         # Mapping conversion utility
@@ -186,10 +201,13 @@ DarkClient/
 ```
 
 ## 🔧 Configuration
-### Logging
-Logs are written to:
-- - Injector application logs `app.log` is located where injector is executed
-- - Client library logs `dark_client.log` is located in .minecraft
+### Files
+DarkClient writes nothing into `.minecraft` — all of its files live in the
+directory the **injector** is started from:
+- `app.log` — injector log
+- `agent_loader.log` — agent loader log
+- `dark_client.log` — client log
+- `dark_client_config.json` — persisted keybinds, settings, enabled modules and GUI layout
 
 ### Network Settings
 The injector and agent communicate over TCP `127.0.0.1:7878`, defined once in the `protocol` crate:
