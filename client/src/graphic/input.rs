@@ -52,6 +52,7 @@ const GLFW_PRESS: i32 = 1;
 const GLFW_MOUSE_BUTTON_LEFT: i32 = 0;
 const GLFW_MOUSE_BUTTON_RIGHT: i32 = 1;
 const GLFW_KEY_RIGHT_SHIFT: i32 = 344;
+const GLFW_KEY_ESCAPE: i32 = 256;
 
 const GLFW_CURSOR: i32 = 0x0003_3001;
 const GLFW_CURSOR_NORMAL: i32 = 0x0003_4001;
@@ -169,12 +170,19 @@ extern "C" fn on_key(window: *mut c_void, key: i32, scancode: i32, action: i32, 
         LAST_KEY_PRESSED.store(key, Ordering::Relaxed);
     }
 
-    if key == GLFW_KEY_RIGHT_SHIFT && action == GLFW_PRESS {
+    let gui_was_open = GUI_OPEN.load(Ordering::Relaxed);
+
+    // Right Shift toggles the GUI; ESC also closes it while it is open.
+    if action == GLFW_PRESS
+        && (key == GLFW_KEY_RIGHT_SHIFT || (key == GLFW_KEY_ESCAPE && gui_was_open))
+    {
         toggle_gui();
     }
 
-    // While the GUI is open, swallow the event instead of forwarding it.
-    if GUI_OPEN.load(Ordering::Relaxed) {
+    // Swallow the event — instead of forwarding it — whenever the GUI is open,
+    // or was open until this very keystroke closed it (so ESC closing the GUI
+    // does not also reach Minecraft and open its pause menu).
+    if gui_was_open || GUI_OPEN.load(Ordering::Relaxed) {
         return;
     }
 

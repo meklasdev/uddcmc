@@ -7,7 +7,7 @@ use dashmap::DashMap;
 use log::error;
 
 use crate::module::{Module, ModuleId, ModuleType};
-use crate::net::packet::Packet;
+use crate::net::packet::{Packet, PacketAction};
 
 /// A shared, lockable handle to one module.
 pub type ModuleHandle = Arc<Mutex<ModuleType>>;
@@ -78,15 +78,22 @@ impl ModuleRegistry {
     }
 
     /// Offers `packet` to every enabled module's `handle_packet`. Called from
-    /// the connection's packet dispatch, on the Netty thread.
-    pub fn handle_packet(&self, packet: &mut Packet) {
+    /// the connection's packet dispatch, on the Netty thread. Returns
+    /// [`PacketAction::Cancel`] as soon as any module asks to drop the packet
+    /// (the remaining modules are then skipped), otherwise
+    /// [`PacketAction::Forward`].
+    pub fn handle_packet(&self, packet: &mut Packet) -> PacketAction {
         for handle in self.handles() {
             let Ok(module) = handle.lock() else {
                 continue;
             };
-            if module.get_module_data().enabled {
-                module.handle_packet(packet);
+            if !module.get_module_data().enabled {
+                continue;
+            }
+            if module.handle_packet(packet) == PacketAction::Cancel {
+                return PacketAction::Cancel;
             }
         }
+        PacketAction::Forward
     }
 }

@@ -152,11 +152,7 @@ impl Minecraft {
                 return Ok(Screen::None);
             }
 
-            let is = |class| {
-                mapping()
-                    .is_instance_of(class, &screen)
-                    .unwrap_or(false)
-            };
+            let is = |class| mapping().is_instance_of(class, &screen).unwrap_or(false);
             // Specific screens first — `InventoryScreen` / `CraftingScreen`
             // both extend `AbstractContainerScreen`.
             let screen = if is(MinecraftClassType::ChatScreen) {

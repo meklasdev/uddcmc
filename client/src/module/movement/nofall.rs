@@ -1,5 +1,5 @@
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId};
-use crate::net::packet::Packet;
+use crate::net::packet::{Packet, PacketAction};
 
 /// Prevents fall damage. The work happens in [`NoFallModule::handle_packet`]:
 /// while enabled, every outbound movement packet reports the player as on the
@@ -38,14 +38,13 @@ impl Module for NoFallModule {
         Ok(())
     }
 
-    fn handle_packet(&self, packet: &mut Packet) {
-        // Report the player as on the ground on every movement packet.
-        // (`if let` filters for the variant we care about — it becomes
-        // refutable once `Packet` gains more variants.)
-        #[allow(irrefutable_let_patterns)]
-        if let Packet::MovePlayer(move_packet) = packet {
+    fn handle_packet(&self, packet: &mut Packet) -> PacketAction {
+        // Report the player as on the ground on every movement packet, so the
+        // server never accumulates the fall distance it turns into damage.
+        if let Packet::ServerboundMovePlayer(move_packet) = packet {
             move_packet.on_ground = true;
         }
+        PacketAction::Forward
     }
 
     fn get_module_data(&self) -> &ModuleData {

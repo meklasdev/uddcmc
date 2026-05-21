@@ -41,6 +41,13 @@ pub enum MinecraftClassType {
     InventoryScreen,
     CraftingScreen,
     CreativeModeInventoryScreen,
+    // Network packets — the connection layer (`net/`) reads and rewrites these.
+    ServerboundMovePlayerPacket,
+    ServerboundMovePlayerPacketPos,
+    ServerboundMovePlayerPacketPosRot,
+    ServerboundMovePlayerPacketRot,
+    ServerboundMovePlayerPacketStatusOnly,
+    ClientboundSetEntityMotionPacket,
 }
 
 impl MinecraftClassType {
@@ -101,6 +108,24 @@ impl MinecraftClassType {
             }
             MinecraftClassType::CreativeModeInventoryScreen => {
                 "net/minecraft/client/gui/screens/inventory/CreativeModeInventoryScreen"
+            }
+            MinecraftClassType::ServerboundMovePlayerPacket => {
+                "net/minecraft/network/protocol/game/ServerboundMovePlayerPacket"
+            }
+            MinecraftClassType::ServerboundMovePlayerPacketPos => {
+                "net/minecraft/network/protocol/game/ServerboundMovePlayerPacket$Pos"
+            }
+            MinecraftClassType::ServerboundMovePlayerPacketPosRot => {
+                "net/minecraft/network/protocol/game/ServerboundMovePlayerPacket$PosRot"
+            }
+            MinecraftClassType::ServerboundMovePlayerPacketRot => {
+                "net/minecraft/network/protocol/game/ServerboundMovePlayerPacket$Rot"
+            }
+            MinecraftClassType::ServerboundMovePlayerPacketStatusOnly => {
+                "net/minecraft/network/protocol/game/ServerboundMovePlayerPacket$StatusOnly"
+            }
+            MinecraftClassType::ClientboundSetEntityMotionPacket => {
+                "net/minecraft/network/protocol/game/ClientboundSetEntityMotionPacket"
             }
         }
     }

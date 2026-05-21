@@ -28,9 +28,15 @@ impl Vec3 {
     pub fn read(obj: &JObject) -> anyhow::Result<Vec3> {
         let mapping = mapping();
         Ok(Vec3 {
-            x: mapping.get_field(Cls::Vec3, obj, "x", FieldType::Double)?.d()?,
-            y: mapping.get_field(Cls::Vec3, obj, "y", FieldType::Double)?.d()?,
-            z: mapping.get_field(Cls::Vec3, obj, "z", FieldType::Double)?.d()?,
+            x: mapping
+                .get_field(Cls::Vec3, obj, "x", FieldType::Double)?
+                .d()?,
+            y: mapping
+                .get_field(Cls::Vec3, obj, "y", FieldType::Double)?
+                .d()?,
+            z: mapping
+                .get_field(Cls::Vec3, obj, "z", FieldType::Double)?
+                .d()?,
         })
     }
 

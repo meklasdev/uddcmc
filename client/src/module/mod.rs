@@ -40,6 +40,7 @@ pub enum ModuleId {
     KillAura,
     MobAura,
     Aimbot,
+    Velocity,
     PlayerEsp,
     MobEsp,
     ChestEsp,
@@ -54,6 +55,7 @@ impl ModuleId {
             ModuleId::KillAura => "KillAura",
             ModuleId::MobAura => "MobAura",
             ModuleId::Aimbot => "Aimbot",
+            ModuleId::Velocity => "Velocity",
             ModuleId::PlayerEsp => "Player ESP",
             ModuleId::MobEsp => "Mob ESP",
             ModuleId::ChestEsp => "Chest ESP",
@@ -159,8 +161,15 @@ pub trait Module: Debug + Send + Sync {
     fn on_tick(&self) -> anyhow::Result<()>;
 
     /// Inspects — and may modify — a packet passing through the connection.
-    /// Only enabled modules are called; the default ignores every packet.
-    fn handle_packet(&self, _packet: &mut crate::net::packet::Packet) {}
+    /// Only enabled modules are called. Mutate `packet` in place to rewrite it;
+    /// return [`PacketAction::Cancel`] to drop it entirely. The default ignores
+    /// every packet and forwards it untouched.
+    fn handle_packet(
+        &self,
+        _packet: &mut crate::net::packet::Packet,
+    ) -> crate::net::packet::PacketAction {
+        crate::net::packet::PacketAction::Forward
+    }
 
     fn get_module_data(&self) -> &ModuleData;
     fn get_module_data_mut(&mut self) -> &mut ModuleData;

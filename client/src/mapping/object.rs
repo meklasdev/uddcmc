@@ -34,7 +34,12 @@ pub trait MappedObject {
     where
         Self: Sized,
     {
-        mapping().get_field(Self::class_type(), self.jni_ref().as_obj(), name, field_type)
+        mapping().get_field(
+            Self::class_type(),
+            self.jni_ref().as_obj(),
+            name,
+            field_type,
+        )
     }
 
     /// Writes an instance field of the wrapped object.

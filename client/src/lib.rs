@@ -20,6 +20,7 @@ use crate::graphic::hook::{install_hooks, uninstall_hooks};
 use crate::module::combat::aimbot::AimbotModule;
 use crate::module::combat::killaura::KillAuraModule;
 use crate::module::combat::mobaura::MobAuraModule;
+use crate::module::combat::velocity::VelocityModule;
 use crate::module::movement::fly::FlyModule;
 use crate::module::movement::nofall::NoFallModule;
 use crate::module::render::chest_esp::ChestEspModule;
@@ -100,6 +101,7 @@ fn register_modules() {
     modules.register(KillAuraModule::new());
     modules.register(MobAuraModule::new());
     modules.register(AimbotModule::new());
+    modules.register(VelocityModule::new());
     modules.register(PlayerEspModule::new());
     modules.register(MobEspModule::new());
     modules.register(ChestEspModule::new());

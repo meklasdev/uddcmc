@@ -2,26 +2,20 @@
 //!
 //! The packet is an abstract class with four subclasses — `Pos`, `PosRot`,
 //! `Rot`, `StatusOnly` — chosen by which of position / rotation it carries.
-//! [`MovePlayerPacket::read`] snapshots any of them; [`MovePlayerPacket::to_java`]
-//! rebuilds the matching subclass.
+//! `read` snapshots any of them; `to_java` rebuilds the matching subclass.
 
+use crate::mapping::MinecraftClassType;
 use crate::state::mapping;
 use jni::objects::{JObject, JValue};
 use jni::sys::jobject;
 use jni::JNIEnv;
 
-/// Binary name of the abstract `ServerboundMovePlayerPacket`.
-pub const CLASS: &str = "net/minecraft/network/protocol/game/ServerboundMovePlayerPacket";
-
-const POS: &str = "net/minecraft/network/protocol/game/ServerboundMovePlayerPacket$Pos";
-const POS_ROT: &str = "net/minecraft/network/protocol/game/ServerboundMovePlayerPacket$PosRot";
-const ROT: &str = "net/minecraft/network/protocol/game/ServerboundMovePlayerPacket$Rot";
-const STATUS_ONLY: &str =
-    "net/minecraft/network/protocol/game/ServerboundMovePlayerPacket$StatusOnly";
+/// Class of the abstract `ServerboundMovePlayerPacket`.
+pub const CLASS_TYPE: MinecraftClassType = MinecraftClassType::ServerboundMovePlayerPacket;
 
 /// A snapshot of a `ServerboundMovePlayerPacket`.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct MovePlayerPacket {
+pub struct ServerboundMovePlayerPacket {
     pub x: f64,
     pub y: f64,
     pub z: f64,
@@ -33,10 +27,10 @@ pub struct MovePlayerPacket {
     pub has_rotation: bool,
 }
 
-impl MovePlayerPacket {
+impl ServerboundMovePlayerPacket {
     /// Reads a `ServerboundMovePlayerPacket` JVM object into a snapshot.
-    pub fn read(env: &mut JNIEnv, packet: &JObject) -> anyhow::Result<MovePlayerPacket> {
-        Ok(MovePlayerPacket {
+    pub fn read(env: &mut JNIEnv, packet: &JObject) -> anyhow::Result<ServerboundMovePlayerPacket> {
+        Ok(ServerboundMovePlayerPacket {
             x: env
                 .call_method(packet, "getX", "(D)D", &[JValue::Double(0.0)])?
                 .d()?,
@@ -69,7 +63,10 @@ impl MovePlayerPacket {
 
         let object = match (self.has_position, self.has_rotation) {
             (true, true) => {
-                let class = mapping().resolve_class(env, POS_ROT)?;
+                let class = mapping().resolve_class(
+                    env,
+                    MinecraftClassType::ServerboundMovePlayerPacketPosRot.get_name(),
+                )?;
                 env.new_object(
                     &class,
                     "(DDDFFZZ)V",
@@ -85,7 +82,10 @@ impl MovePlayerPacket {
                 )?
             }
             (true, false) => {
-                let class = mapping().resolve_class(env, POS)?;
+                let class = mapping().resolve_class(
+                    env,
+                    MinecraftClassType::ServerboundMovePlayerPacketPos.get_name(),
+                )?;
                 env.new_object(
                     &class,
                     "(DDDZZ)V",
@@ -99,7 +99,10 @@ impl MovePlayerPacket {
                 )?
             }
             (false, true) => {
-                let class = mapping().resolve_class(env, ROT)?;
+                let class = mapping().resolve_class(
+                    env,
+                    MinecraftClassType::ServerboundMovePlayerPacketRot.get_name(),
+                )?;
                 env.new_object(
                     &class,
                     "(FFZZ)V",
@@ -112,7 +115,10 @@ impl MovePlayerPacket {
                 )?
             }
             (false, false) => {
-                let class = mapping().resolve_class(env, STATUS_ONLY)?;
+                let class = mapping().resolve_class(
+                    env,
+                    MinecraftClassType::ServerboundMovePlayerPacketStatusOnly.get_name(),
+                )?;
                 env.new_object(&class, "(ZZ)V", &[on_ground, collision])?
             }
         };

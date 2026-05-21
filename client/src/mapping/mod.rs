@@ -1,14 +1,14 @@
 use crate::mapping::class::{Method, MethodHandle, MinecraftClass};
 pub use crate::mapping::class_type::MinecraftClassType;
-pub use crate::mapping::object::MappedObject;
-pub use mapping_derive::MappedObject;
 use crate::mapping::minecraft_version::MinecraftVersion;
+pub use crate::mapping::object::MappedObject;
 use dashmap::DashMap;
 use jni::objects::{GlobalRef, JClass, JMethodID, JObject, JString, JValue, JValueOwned};
 use jni::signature::{Primitive, ReturnType};
 use jni::sys::{jsize, jvalue, JNI_GetCreatedJavaVMs, JNI_OK};
 use jni::{JNIEnv, JavaVM};
 use log::info;
+pub use mapping_derive::MappedObject;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -20,11 +20,11 @@ pub mod client;
 pub mod component;
 pub mod entity;
 pub mod java;
-pub mod math;
-pub mod object;
 mod loader;
+pub mod math;
 mod method;
 mod minecraft_version;
+pub mod object;
 mod reflect;
 
 #[cfg(test)]

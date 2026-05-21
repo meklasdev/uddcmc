@@ -3,6 +3,7 @@ pub mod aura;
 pub mod killaura;
 pub mod mobaura;
 pub mod rotation;
+pub mod velocity;
 
 use crate::mapping::entity::player::LocalPlayer;
 use crate::mapping::entity::Entity;

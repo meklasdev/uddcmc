@@ -407,7 +407,10 @@ fn interp_factor(state: &EspState, now: Instant) -> f64 {
 /// Resolves the current camera into a [`View`], caching the [`Camera`] handle.
 fn read_view(state: &mut EspState, ctx: &Context) -> Option<View> {
     if state.camera.is_none() {
-        match minecraft().game_renderer().and_then(|gr| gr.get_main_camera()) {
+        match minecraft()
+            .game_renderer()
+            .and_then(|gr| gr.get_main_camera())
+        {
             Ok(camera) => state.camera = Some(camera),
             Err(e) => {
                 log::debug!("ESP: camera unavailable: {e}");
