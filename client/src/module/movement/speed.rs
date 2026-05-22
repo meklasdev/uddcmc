@@ -1,19 +1,25 @@
-use crate::mapping::entity::EntityRef;
+use crate::mapping::entity::{EntityRef, LivingEntityRef};
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId, ModuleSetting};
 use crate::state::minecraft;
 
-/// Approximate vanilla sprint ground speed, in blocks/tick — the `1.0`
-/// reference the multiplier scales.
-const SPRINT_SPEED: f64 = 0.13;
-/// Horizontal speed, in blocks/tick, below which the player counts as still.
-const MOVING_THRESHOLD: f64 = 0.05;
+/// Vanilla sprint speed, in blocks/tick (5.612 m/s ÷ 20) — the displacement
+/// produced at multiplier `1.0`.
+const SPRINT_SPEED: f64 = 0.2806;
+/// The movement acceleration Minecraft adds, on its own, on top of the velocity
+/// set here each tick. Subtracted so the resulting speed matches the target
+/// instead of overshooting it.
+const TICK_ACCEL: f64 = 0.13;
+/// Horizontal speed below which the velocity direction is too ill-defined to
+/// rescale.
+const EPSILON: f64 = 0.001;
 
 /// Moves the player faster than vanilla by rescaling their ground velocity.
 ///
-/// Each tick the horizontal velocity is set to `SPRINT_SPEED × multiplier`,
-/// keeping its direction — so movement still follows the player's input, just
-/// faster. Only ground movement is touched: boosting mid-air is floaty and
-/// conspicuous.
+/// Each tick — while a movement key is held — the horizontal velocity is set so
+/// the next tick's displacement is `SPRINT_SPEED × multiplier`, keeping its
+/// direction. Gating on real input (`xxa`/`zza`) is essential: without it the
+/// boosted velocity would never decay and the player would glide on forever
+/// after releasing the key.
 #[derive(Debug)]
 pub struct SpeedModule {
     pub module: ModuleData,
@@ -59,19 +65,25 @@ impl Module for SpeedModule {
         let Some(player) = minecraft().player()? else {
             return Ok(());
         };
-        // Boost ground movement only.
-        if !player.on_ground()? {
+        // Boost ground movement only, and only while a key is actually held —
+        // the input gate is what lets the velocity decay on release.
+        if !player.on_ground()? || !player.has_move_input()? {
             return Ok(());
         }
 
         let motion = player.get_delta_movement()?;
         let horizontal = (motion.x() * motion.x() + motion.z() * motion.z()).sqrt();
-        if horizontal <= MOVING_THRESHOLD {
-            return Ok(()); // standing still — nothing to scale
+        if horizontal <= EPSILON {
+            return Ok(()); // just started moving — direction not settled yet
         }
 
-        // Rescale the horizontal velocity to the target speed, direction kept.
-        let target = SPRINT_SPEED * self.multiplier();
+        // The velocity to set so that, once the game adds this tick's own
+        // acceleration, the displacement lands on the target speed.
+        let target = (SPRINT_SPEED * self.multiplier() - TICK_ACCEL).max(EPSILON);
+        if horizontal >= target {
+            return Ok(()); // already at or above the target — never slow down
+        }
+
         let scale = target / horizontal;
         player.set_delta_movement(motion.x() * scale, motion.y(), motion.z() * scale)
     }
