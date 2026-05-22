@@ -26,6 +26,7 @@ use crate::module::combat::velocity::VelocityModule;
 use crate::module::misc::antiafk::AntiAfkModule;
 use crate::module::movement::fly::FlyModule;
 use crate::module::movement::nofall::NoFallModule;
+use crate::module::movement::speed::SpeedModule;
 use crate::module::movement::sprint::SprintModule;
 use crate::module::render::chest_esp::ChestEspModule;
 use crate::module::render::fullbright::FullbrightModule;
@@ -123,4 +124,5 @@ fn register_modules() {
     modules.register(AntiAfkModule::new());
     modules.register(SprintModule::new());
     modules.register(NametagsModule::new());
+    modules.register(SpeedModule::new());
 }
