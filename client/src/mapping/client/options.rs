@@ -31,7 +31,10 @@ impl Options {
     pub fn gamma(&self) -> anyhow::Result<OptionInstance> {
         self.in_frame(|| {
             let option = self
-                .get_field("gamma", FieldType::Object(MinecraftClassType::OptionInstance))?
+                .get_field(
+                    "gamma",
+                    FieldType::Object(MinecraftClassType::OptionInstance),
+                )?
                 .l()?;
             Ok(OptionInstance::new(mapping().new_global_ref(option)?))
         })

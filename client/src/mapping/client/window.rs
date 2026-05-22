@@ -1,4 +1,3 @@
-use crate::mapping::method::MethodName;
 use crate::mapping::{MappedObject, MinecraftClassType};
 use crate::state::mapping;
 use jni::objects::GlobalRef;
@@ -27,9 +26,9 @@ impl Window {
         })
     }
 
-    /// The native GLFW window handle.
+    /// The native GLFW window handle. `Window.getWindow()` was renamed to
+    /// `handle()` in 1.21.9 — the rename registry maps it back on older builds.
     pub fn get_window(&self) -> anyhow::Result<jlong> {
-        let name = MethodName::WindowGetWindow.get_name(mapping().get_version());
-        Ok(self.call_method(name, &[])?.j()?)
+        Ok(self.call_method("handle", &[])?.j()?)
     }
 }

@@ -292,9 +292,7 @@ impl EspConfig {
     /// Whether players must be gathered — wanted by Player ESP, by tracers, or
     /// by name tags.
     fn want_players(&self) -> bool {
-        self.player.enabled
-            || (self.tracer.enabled && self.tracer.players)
-            || self.nametag.enabled
+        self.player.enabled || (self.tracer.enabled && self.tracer.players) || self.nametag.enabled
     }
 
     /// Whether mobs must be gathered — wanted by Mob ESP or by tracers.

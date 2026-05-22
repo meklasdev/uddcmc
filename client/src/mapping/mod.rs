@@ -22,10 +22,10 @@ pub mod entity;
 pub mod java;
 mod loader;
 pub mod math;
-mod method;
 mod minecraft_version;
 pub mod object;
 mod reflect;
+mod renames;
 
 #[cfg(test)]
 mod jvm_test;
@@ -230,6 +230,7 @@ impl Mapping {
     /// Resolves a mapped class by its deobfuscated name. In reflected mode the
     /// class is reflected from the JVM and cached on first request.
     pub fn get_class(&self, name: &str) -> anyhow::Result<Arc<MinecraftClass>> {
+        let name = renames::resolve(None, name, self.version);
         if let Some(class) = self.classes.get(name) {
             return Ok(Arc::clone(class.value()));
         }
@@ -361,6 +362,7 @@ impl Mapping {
         class_type: MinecraftClassType,
         field: &str,
     ) -> anyhow::Result<String> {
+        let field = renames::resolve(Some(class_type.get_name()), field, self.version);
         match self.mode {
             Mode::Reflected => Ok(field.to_owned()),
             Mode::Obfuscated => Ok(self
@@ -453,6 +455,7 @@ impl Mapping {
 
         let class = self.get_class(class_type.get_name())?;
         let jclass = self.resolve_class(&mut env, &class.name)?;
+        let method_name = renames::resolve(Some(class_type.get_name()), method_name, self.version);
         let method = class.get_method_by_args(method_name, args)?;
         match env.call_static_method(jclass, &method.name, &method.signature, args) {
             Ok(value) => Ok(value),
@@ -482,6 +485,7 @@ impl Mapping {
         let mut env = self.get_env()?;
 
         let class = self.get_class(class_type.get_name())?;
+        let method_name = renames::resolve(Some(class_type.get_name()), method_name, self.version);
         let method = class.get_method_by_args(method_name, args)?;
 
         // `call_method_unchecked` does not validate arity — so guard it here,

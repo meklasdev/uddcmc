@@ -67,7 +67,10 @@ impl Module for FullbrightModule {
     fn on_tick(&self) -> anyhow::Result<()> {
         // Re-assert each tick so opening the video-settings slider — which
         // would clamp gamma back into `0..1` — cannot quietly undo Fullbright.
-        minecraft().options()?.gamma()?.force_double(FULLBRIGHT_GAMMA)
+        minecraft()
+            .options()?
+            .gamma()?
+            .force_double(FULLBRIGHT_GAMMA)
     }
 
     fn get_module_data(&self) -> &ModuleData {

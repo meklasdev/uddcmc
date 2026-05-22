@@ -17,7 +17,7 @@ impl MinecraftVersion {
         patch: 0,
     };
 
-    pub fn new(major: u32, minor: u32, patch: u32) -> MinecraftVersion {
+    pub const fn new(major: u32, minor: u32, patch: u32) -> MinecraftVersion {
         MinecraftVersion {
             major,
             minor,
