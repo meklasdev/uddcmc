@@ -3,3 +3,4 @@
 pub mod autoarmor;
 pub mod autototem;
 pub mod cheststealer;
+pub mod freecam;

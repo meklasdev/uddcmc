@@ -60,6 +60,7 @@ pub enum ModuleId {
     AutoArmor,
     Nuker,
     Scaffold,
+    Freecam,
 }
 
 impl ModuleId {
@@ -88,6 +89,7 @@ impl ModuleId {
             ModuleId::AutoArmor => "AutoArmor",
             ModuleId::Nuker => "Nuker",
             ModuleId::Scaffold => "Scaffold",
+            ModuleId::Freecam => "Freecam",
         }
     }
 }

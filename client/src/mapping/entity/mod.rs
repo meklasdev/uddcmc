@@ -137,6 +137,27 @@ pub trait EntityRef: MappedObject + Sized {
         Ok(())
     }
 
+    /// Sets the entity's position.
+    fn set_pos(&self, x: f64, y: f64, z: f64) -> anyhow::Result<()> {
+        self.call_method(
+            "setPos",
+            &[JValue::Double(x), JValue::Double(y), JValue::Double(z)],
+        )?;
+        Ok(())
+    }
+
+    /// Whether the entity is sneaking (the shift key is held).
+    fn is_shift_key_down(&self) -> anyhow::Result<bool> {
+        Ok(self.call_method("isShiftKeyDown", &[])?.z()?)
+    }
+
+    /// Sets the entity's `noPhysics` flag — when set, the entity ignores block
+    /// collision (no clip).
+    fn set_no_physics(&self, value: bool) -> anyhow::Result<()> {
+        self.set_field("noPhysics", FieldType::Boolean, JValue::from(value))?;
+        Ok(())
+    }
+
     /// Sets the entity's invulnerability flag.
     fn set_invulnerable(&self, value: bool) -> anyhow::Result<()> {
         self.call_method("setInvulnerable", &[JValue::from(value)])?;
@@ -224,6 +245,11 @@ pub trait LivingEntityRef: EntityRef {
     /// per-tick speed, including sprint and potion modifiers.
     fn get_speed(&self) -> anyhow::Result<f32> {
         Ok(self.call_method("getSpeed", &[])?.f()?)
+    }
+
+    /// Whether the entity currently holds the jump input.
+    fn is_jumping(&self) -> anyhow::Result<bool> {
+        Ok(self.get_field("jumping", FieldType::Boolean)?.z()?)
     }
 
     /// Plays the main-hand swing animation (and sends it to the server).
