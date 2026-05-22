@@ -216,6 +216,17 @@ The injector and agent communicate over TCP `127.0.0.1:7878`, defined once in th
 pub const SOCKET_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 7878);
 ```
 
+## 🩹 Patched Dependencies
+
+DarkClient vendors a **patched copy of [`ilhook`](https://crates.io/crates/ilhook)**
+(the inline-hook crate behind the frame hook) under `vendor/ilhook`, wired in through
+`[patch.crates-io]`. Upstream `ilhook` 2.3.0 has a Linux bug: its hook trampoline is a
+heap allocation that can straddle a page boundary, yet only one page is marked
+executable — so roughly one inject in four ended in a `SIGSEGV` in native code.
+
+> 📄 Full write-up — causes, crash-log evidence and the fix:
+> [`docs/vendored-ilhook-fix.md`](docs/vendored-ilhook-fix.md)
+
 ## 🤝 Contributing
 1. **Fork** the repository
 2. **Create** a feature branch (`git checkout -b feature/amazing-module`)
