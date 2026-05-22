@@ -43,6 +43,9 @@ pub enum MinecraftClassType {
     AbstractContainerMenu,
     ContainerInput,
     EquipmentSlot,
+    BlockState,
+    Direction,
+    BlockHitResult,
     ChatScreen,
     PauseScreen,
     AbstractContainerScreen,
@@ -113,6 +116,9 @@ impl MinecraftClassType {
             }
             MinecraftClassType::ContainerInput => "net/minecraft/world/inventory/ContainerInput",
             MinecraftClassType::EquipmentSlot => "net/minecraft/world/entity/EquipmentSlot",
+            MinecraftClassType::BlockState => "net/minecraft/world/level/block/state/BlockState",
+            MinecraftClassType::Direction => "net/minecraft/core/Direction",
+            MinecraftClassType::BlockHitResult => "net/minecraft/world/phys/BlockHitResult",
             MinecraftClassType::ChatScreen => "net/minecraft/client/gui/screens/ChatScreen",
             MinecraftClassType::PauseScreen => "net/minecraft/client/gui/screens/PauseScreen",
             MinecraftClassType::AbstractContainerScreen => {

@@ -6,6 +6,7 @@ pub mod movement;
 pub mod player;
 pub mod registry;
 pub mod render;
+pub mod world;
 
 pub type ModuleType = Box<dyn Module + Send + Sync>;
 
@@ -57,6 +58,7 @@ pub enum ModuleId {
     AutoTotem,
     ChestStealer,
     AutoArmor,
+    Nuker,
 }
 
 impl ModuleId {
@@ -83,6 +85,7 @@ impl ModuleId {
             ModuleId::AutoTotem => "AutoTotem",
             ModuleId::ChestStealer => "ChestStealer",
             ModuleId::AutoArmor => "AutoArmor",
+            ModuleId::Nuker => "Nuker",
         }
     }
 }

@@ -1,6 +1,7 @@
 use crate::mapping::block_entity::BlockEntity;
 use crate::mapping::entity::Entity;
 use crate::mapping::java::iterable::Iterable;
+use crate::mapping::math::BlockPos;
 use crate::mapping::{MappedObject, MinecraftClassType};
 use crate::state::mapping;
 use jni::objects::{GlobalRef, JValue};
@@ -29,6 +30,20 @@ impl World {
                 entities.push(Entity::new(iterator.next()?));
             }
             Ok(entities)
+        })
+    }
+
+    /// Whether the block at `pos` is air.
+    pub fn is_block_air(&self, pos: &BlockPos) -> anyhow::Result<bool> {
+        self.in_frame(|| {
+            let mut env = mapping().get_env()?;
+            let pos_obj = pos.to_java(&mut env)?;
+            let state = self
+                .call_method("getBlockState", &[JValue::Object(&pos_obj)])?
+                .l()?;
+            Ok(mapping()
+                .call_method(MinecraftClassType::BlockState, &state, "isAir", &[])?
+                .z()?)
         })
     }
 

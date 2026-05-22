@@ -13,6 +13,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
+pub mod block;
 pub mod block_entity;
 pub mod class;
 pub mod class_type;

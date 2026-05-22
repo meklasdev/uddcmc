@@ -8,7 +8,8 @@
 
 use crate::mapping::{FieldType, MinecraftClassType as Cls};
 use crate::state::mapping;
-use jni::objects::JObject;
+use jni::objects::{JObject, JValue};
+use jni::JNIEnv;
 
 /// An immutable 3D vector — a snapshot of Minecraft's `Vec3`.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -51,6 +52,20 @@ impl Vec3 {
     pub const fn z(&self) -> f64 {
         self.z
     }
+
+    /// Builds a fresh JVM `Vec3` object from this value.
+    pub fn to_java<'e>(self, env: &mut JNIEnv<'e>) -> anyhow::Result<JObject<'e>> {
+        let class = mapping().resolve_class(env, Cls::Vec3.get_name())?;
+        Ok(env.new_object(
+            &class,
+            "(DDD)V",
+            &[
+                JValue::Double(self.x),
+                JValue::Double(self.y),
+                JValue::Double(self.z),
+            ],
+        )?)
+    }
 }
 
 /// An immutable block coordinate — a snapshot of Minecraft's `BlockPos`
@@ -88,5 +103,24 @@ impl BlockPos {
 
     pub const fn z(&self) -> i32 {
         self.z
+    }
+
+    /// This position offset by `(dx, dy, dz)`.
+    pub const fn offset(&self, dx: i32, dy: i32, dz: i32) -> BlockPos {
+        BlockPos::new(self.x + dx, self.y + dy, self.z + dz)
+    }
+
+    /// Builds a fresh JVM `BlockPos` object from this value.
+    pub fn to_java<'e>(self, env: &mut JNIEnv<'e>) -> anyhow::Result<JObject<'e>> {
+        let class = mapping().resolve_class(env, Cls::BlockPos.get_name())?;
+        Ok(env.new_object(
+            &class,
+            "(III)V",
+            &[
+                JValue::Int(self.x),
+                JValue::Int(self.y),
+                JValue::Int(self.z),
+            ],
+        )?)
     }
 }
