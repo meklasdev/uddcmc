@@ -2,6 +2,7 @@
 //! by `LocalPlayer`.
 
 use crate::mapping::entity::{EntityRef, LivingEntityRef, PlayerRef};
+use crate::mapping::inventory::{AbstractContainerMenu, Inventory};
 use crate::mapping::{FieldType, MappedObject, MinecraftClassType};
 use crate::state::mapping;
 use jni::objects::{GlobalRef, JValue};
@@ -41,6 +42,38 @@ impl LocalPlayer {
         Ok(Self {
             abilities: Abilities::new(player_ref.clone())?,
             jni_ref: player_ref,
+        })
+    }
+
+    /// The player's `Inventory`. `getInventory` is declared on `Player`, so the
+    /// call resolves against that class (see [`Abilities::new`]).
+    pub fn get_inventory(&self) -> anyhow::Result<Inventory> {
+        mapping().in_frame(|| {
+            let inventory = mapping()
+                .call_method(
+                    MinecraftClassType::Player,
+                    self.jni_ref().as_obj(),
+                    "getInventory",
+                    &[],
+                )?
+                .l()?;
+            Ok(Inventory::new(mapping().new_global_ref(inventory)?))
+        })
+    }
+
+    /// The container menu currently open for the player — the player's own
+    /// inventory menu (`containerId` 0) unless an external container is open.
+    pub fn container_menu(&self) -> anyhow::Result<AbstractContainerMenu> {
+        mapping().in_frame(|| {
+            let menu = mapping()
+                .get_field(
+                    MinecraftClassType::Player,
+                    self.jni_ref().as_obj(),
+                    "containerMenu",
+                    FieldType::Object(MinecraftClassType::AbstractContainerMenu),
+                )?
+                .l()?;
+            Ok(AbstractContainerMenu::new(mapping().new_global_ref(menu)?))
         })
     }
 }

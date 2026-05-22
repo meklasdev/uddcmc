@@ -1,6 +1,7 @@
 use crate::mapping::entity::player::LocalPlayer;
 use crate::mapping::entity::Entity;
-use crate::mapping::MappedObject;
+use crate::mapping::{FieldType, MappedObject, MinecraftClassType};
+use crate::state::mapping;
 use jni::objects::{GlobalRef, JValue};
 
 #[derive(Debug, Clone, MappedObject)]
@@ -24,5 +25,37 @@ impl MultiPlayerGameMode {
             ],
         )?;
         Ok(())
+    }
+
+    /// Performs a SWAP container click: swaps menu slot `slot` of the container
+    /// `container_id` with an inventory hotbar slot (`hotbar_button` 0-8) or the
+    /// off-hand (`hotbar_button` 40). Sends the click to the server.
+    pub fn container_swap(
+        &self,
+        container_id: i32,
+        slot: i32,
+        hotbar_button: i32,
+        player: &LocalPlayer,
+    ) -> anyhow::Result<()> {
+        self.in_frame(|| {
+            let swap = mapping()
+                .get_static_field(
+                    MinecraftClassType::ContainerInput,
+                    "SWAP",
+                    FieldType::Object(MinecraftClassType::ContainerInput),
+                )?
+                .l()?;
+            self.call_method(
+                "handleContainerInput",
+                &[
+                    JValue::Int(container_id),
+                    JValue::Int(slot),
+                    JValue::Int(hotbar_button),
+                    JValue::Object(&swap),
+                    JValue::Object(player.jni_ref().as_obj()),
+                ],
+            )?;
+            Ok(())
+        })
     }
 }

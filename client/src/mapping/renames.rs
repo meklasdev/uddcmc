@@ -33,6 +33,18 @@ static RENAMES: &[Rename] = &[
         canonical: "handle",
         legacy: &[(v(1, 21, 9), "getWindow")],
     },
+    // `MultiPlayerGameMode.handleInventoryMouseClick()` -> `handleContainerInput()`
+    Rename {
+        owner: Some("net/minecraft/client/multiplayer/MultiPlayerGameMode"),
+        canonical: "handleContainerInput",
+        legacy: &[(v(26, 1, 0), "handleInventoryMouseClick")],
+    },
+    // class `ClickType` -> class `ContainerInput`
+    Rename {
+        owner: None,
+        canonical: "net/minecraft/world/inventory/ContainerInput",
+        legacy: &[(v(26, 1, 0), "net/minecraft/world/inventory/ClickType")],
+    },
 ];
 
 /// The name `canonical` had on Minecraft `version` — `canonical` itself unless

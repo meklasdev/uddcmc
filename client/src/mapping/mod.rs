@@ -19,6 +19,7 @@ pub mod class_type;
 pub mod client;
 pub mod component;
 pub mod entity;
+pub mod inventory;
 pub mod java;
 mod loader;
 pub mod math;

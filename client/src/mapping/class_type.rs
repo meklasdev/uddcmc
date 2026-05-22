@@ -36,6 +36,12 @@ pub enum MinecraftClassType {
     Integer,
     Double,
     InteractionHand,
+    Inventory,
+    ItemStack,
+    Item,
+    Items,
+    AbstractContainerMenu,
+    ContainerInput,
     ChatScreen,
     PauseScreen,
     AbstractContainerScreen,
@@ -97,6 +103,14 @@ impl MinecraftClassType {
             MinecraftClassType::Integer => "java/lang/Integer",
             MinecraftClassType::Double => "java/lang/Double",
             MinecraftClassType::InteractionHand => "net/minecraft/world/InteractionHand",
+            MinecraftClassType::Inventory => "net/minecraft/world/entity/player/Inventory",
+            MinecraftClassType::ItemStack => "net/minecraft/world/item/ItemStack",
+            MinecraftClassType::Item => "net/minecraft/world/item/Item",
+            MinecraftClassType::Items => "net/minecraft/world/item/Items",
+            MinecraftClassType::AbstractContainerMenu => {
+                "net/minecraft/world/inventory/AbstractContainerMenu"
+            }
+            MinecraftClassType::ContainerInput => "net/minecraft/world/inventory/ContainerInput",
             MinecraftClassType::ChatScreen => "net/minecraft/client/gui/screens/ChatScreen",
             MinecraftClassType::PauseScreen => "net/minecraft/client/gui/screens/PauseScreen",
             MinecraftClassType::AbstractContainerScreen => {
