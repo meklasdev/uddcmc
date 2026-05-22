@@ -22,6 +22,7 @@ use crate::module::combat::aimbot::AimbotModule;
 use crate::module::combat::killaura::KillAuraModule;
 use crate::module::combat::mobaura::MobAuraModule;
 use crate::module::combat::velocity::VelocityModule;
+use crate::module::misc::antiafk::AntiAfkModule;
 use crate::module::movement::fly::FlyModule;
 use crate::module::movement::nofall::NoFallModule;
 use crate::module::render::chest_esp::ChestEspModule;
@@ -115,4 +116,5 @@ fn register_modules() {
     modules.register(ChestEspModule::new());
     modules.register(TracersModule::new());
     modules.register(FullbrightModule::new());
+    modules.register(AntiAfkModule::new());
 }

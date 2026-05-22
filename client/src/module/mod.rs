@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 
 pub mod combat;
+pub mod misc;
 pub mod movement;
 pub mod registry;
 pub mod render;
@@ -46,6 +47,7 @@ pub enum ModuleId {
     ChestEsp,
     Tracers,
     Fullbright,
+    AntiAfk,
 }
 
 impl ModuleId {
@@ -63,6 +65,7 @@ impl ModuleId {
             ModuleId::ChestEsp => "Chest ESP",
             ModuleId::Tracers => "Tracers",
             ModuleId::Fullbright => "Fullbright",
+            ModuleId::AntiAfk => "AntiAFK",
         }
     }
 }

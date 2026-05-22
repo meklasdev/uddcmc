@@ -62,6 +62,7 @@ pub fn draw(ctx: &Context, progress: f32) {
         ModuleCategory::Render,
         ModuleCategory::Player,
         ModuleCategory::World,
+        ModuleCategory::Misc,
     ];
     let screen_w = ctx.screen_rect().width();
     let mut slot = Pos2::new(ORIGIN_X, ORIGIN_Y);
