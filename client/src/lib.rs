@@ -27,6 +27,7 @@ use crate::module::movement::nofall::NoFallModule;
 use crate::module::render::chest_esp::ChestEspModule;
 use crate::module::render::mob_esp::MobEspModule;
 use crate::module::render::player_esp::PlayerEspModule;
+use crate::module::render::tracers::TracersModule;
 use crate::state::{client, init};
 use log::{error, info, LevelFilter};
 use simplelog::{Config, WriteLogger};
@@ -111,4 +112,5 @@ fn register_modules() {
     modules.register(PlayerEspModule::new());
     modules.register(MobEspModule::new());
     modules.register(ChestEspModule::new());
+    modules.register(TracersModule::new());
 }

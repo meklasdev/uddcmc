@@ -8,3 +8,4 @@
 pub mod chest_esp;
 pub mod mob_esp;
 pub mod player_esp;
+pub mod tracers;

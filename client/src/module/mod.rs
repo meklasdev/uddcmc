@@ -44,6 +44,7 @@ pub enum ModuleId {
     PlayerEsp,
     MobEsp,
     ChestEsp,
+    Tracers,
 }
 
 impl ModuleId {
@@ -59,6 +60,7 @@ impl ModuleId {
             ModuleId::PlayerEsp => "Player ESP",
             ModuleId::MobEsp => "Mob ESP",
             ModuleId::ChestEsp => "Chest ESP",
+            ModuleId::Tracers => "Tracers",
         }
     }
 }

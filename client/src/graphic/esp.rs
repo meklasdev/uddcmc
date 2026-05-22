@@ -252,15 +252,36 @@ struct ChestCfg {
     show_distance: bool,
 }
 
+/// Tracer-line options, snapshotted from the Tracers module once per frame.
+struct TracerCfg {
+    enabled: bool,
+    color: Color32,
+    players: bool,
+    mobs: bool,
+    /// Maximum distance, in blocks, a tracer is drawn at.
+    range: f32,
+}
+
 struct EspConfig {
     player: EntityCfg,
     mob: EntityCfg,
     chest: ChestCfg,
+    tracer: TracerCfg,
 }
 
 impl EspConfig {
     fn any_enabled(&self) -> bool {
-        self.player.enabled || self.mob.enabled || self.chest.enabled
+        self.player.enabled || self.mob.enabled || self.chest.enabled || self.tracer.enabled
+    }
+
+    /// Whether players must be gathered — wanted by Player ESP or by tracers.
+    fn want_players(&self) -> bool {
+        self.player.enabled || (self.tracer.enabled && self.tracer.players)
+    }
+
+    /// Whether mobs must be gathered — wanted by Mob ESP or by tracers.
+    fn want_mobs(&self) -> bool {
+        self.mob.enabled || (self.tracer.enabled && self.tracer.mobs)
     }
 }
 
@@ -306,6 +327,13 @@ fn read_config() -> EspConfig {
             color: Color32::WHITE,
             show_distance: false,
         },
+        tracer: TracerCfg {
+            enabled: false,
+            color: Color32::WHITE,
+            players: false,
+            mobs: false,
+            range: 0.0,
+        },
     };
 
     let modules = &client().modules;
@@ -346,6 +374,18 @@ fn read_config() -> EspConfig {
             };
         }
     }
+    if let Some(arc) = modules.get(ModuleId::Tracers) {
+        if let Ok(module) = arc.lock() {
+            let data = module.get_module_data();
+            cfg.tracer = TracerCfg {
+                enabled: data.enabled,
+                color: color_setting(data, "Color", Color32::from_rgb(100, 200, 255)),
+                players: toggle_setting(data, "Players", true),
+                mobs: toggle_setting(data, "Mobs", false),
+                range: slider_setting(data, "Range", 96.0),
+            };
+        }
+    }
 
     cfg
 }
@@ -381,6 +421,9 @@ pub fn draw(ctx: &Context) {
 
     for entity in &state.entities {
         draw_entity(&painter, &view, entity, t, &cfg);
+        if cfg.tracer.enabled {
+            draw_tracer(&painter, &view, entity, t, &cfg.tracer);
+        }
     }
     for chest in &state.chests {
         draw_chest(&painter, &view, chest, &cfg);
@@ -502,7 +545,9 @@ fn gather(state: &mut EspState, cfg: &EspConfig, now: Instant) {
     state.last_gather = Some(now);
     state.target_fov = read_fov();
 
-    if cfg.player.enabled || cfg.mob.enabled {
+    let want_players = cfg.want_players();
+    let want_mobs = cfg.want_mobs();
+    if want_players || want_mobs {
         let mut range = 0.0_f32;
         if cfg.player.enabled {
             range = range.max(cfg.player.range);
@@ -510,10 +555,13 @@ fn gather(state: &mut EspState, cfg: &EspConfig, now: Instant) {
         if cfg.mob.enabled {
             range = range.max(cfg.mob.range);
         }
+        if cfg.tracer.enabled {
+            range = range.max(cfg.tracer.range);
+        }
         let range_sq = (range as f64) * (range as f64);
 
         let previous = std::mem::take(&mut state.entities);
-        match gather_entities(&previous, range_sq, cfg.player.enabled, cfg.mob.enabled) {
+        match gather_entities(&previous, range_sq, want_players, want_mobs) {
             Ok(list) => state.entities = list,
             Err(e) => log::debug!("ESP: entity gather failed: {e}"),
         }
@@ -787,6 +835,11 @@ fn draw_entity(painter: &Painter, view: &View, entity: &EntityTarget, t: f64, cf
         TargetKind::Player => &cfg.player,
         TargetKind::Mob => &cfg.mob,
     };
+    // The entity may have been gathered only for the tracers — skip the box if
+    // the matching ESP category is itself disabled.
+    if !icfg.enabled {
+        return;
+    }
 
     let feet = entity.prev.lerp(entity.pos, t);
     let half = entity.width * 0.5;
@@ -830,6 +883,35 @@ fn draw_entity(painter: &Painter, view: &View, entity: &EntityTarget, t: f64, cf
             Color32::from_rgb(214, 216, 224),
         );
     }
+}
+
+/// Draws a line from the bottom-centre of the screen to one entity. Skips the
+/// entity if its kind is not wanted, it lies past the tracer range, or its
+/// centre is behind the camera.
+fn draw_tracer(painter: &Painter, view: &View, entity: &EntityTarget, t: f64, cfg: &TracerCfg) {
+    let want = match entity.kind {
+        TargetKind::Player => cfg.players,
+        TargetKind::Mob => cfg.mobs,
+    };
+    if !want {
+        return;
+    }
+
+    let feet = entity.prev.lerp(entity.pos, t);
+    let center = V3 {
+        x: feet.x,
+        y: feet.y + entity.height * 0.5,
+        z: feet.z,
+    };
+    if center.sub(view.cam).length() > cfg.range as f64 {
+        return;
+    }
+
+    let Some(target) = view.project(center) else {
+        return;
+    };
+    let origin = pos2(view.w * 0.5, view.h);
+    painter.line_segment([origin, target], Stroke::new(LINE_WIDTH, cfg.color));
 }
 
 fn draw_chest(painter: &Painter, view: &View, chest: &ChestTarget, cfg: &EspConfig) {
