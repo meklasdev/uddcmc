@@ -1,5 +1,6 @@
 use crate::mapping::entity::mob::Mob;
 use crate::mapping::entity::player::Player;
+use crate::mapping::entity::EntityRef;
 use crate::mapping::MappedObject;
 use crate::module::combat::{look_at, pick_target};
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId, ModuleSetting};
@@ -89,8 +90,8 @@ impl Module for AimbotModule {
         };
 
         let entities = world.get_entities()?;
-        let eye = player.entity.get_eye_position()?;
-        let self_id = player.entity.id()?;
+        let eye = player.get_eye_position()?;
+        let self_id = player.id()?;
         let range = self.range() as f64;
         let locked = *self.target.lock().unwrap();
 

@@ -5,6 +5,7 @@
 //! lives in [`crate::graphic::platform`].
 
 use crate::graphic::platform;
+use crate::mapping::entity::{EntityRef, LivingEntityRef};
 use crate::{gl, state, RUNNING};
 use ilhook::x64::{CallbackOption, HookFlags, HookPoint, HookType, Hooker, Registers};
 use log::info;
@@ -75,12 +76,30 @@ fn check_tick() {
         return;
     }
 
-    let tick_count = match state::minecraft().player() {
-        Ok(Some(player)) => match player.entity.get_tick_count() {
-            Ok(count) => count,
-            Err(_) => return,
-        },
-        Ok(None) | Err(_) => return,
+    // Modules run only in a world with a *living* player. Notably they stand
+    // down while the player is dead on the respawn screen — a cheat still
+    // acting then is an instant ban on most servers — and reactivate once the
+    // player respawns. `set_active` starts/stops them on each transition.
+    let mc = state::minecraft();
+    let in_world = matches!(mc.world(), Ok(Some(_)));
+    let player = match mc.player() {
+        Ok(Some(player)) => Some(player),
+        Ok(None) | Err(_) => None,
+    };
+    let alive = player
+        .as_ref()
+        .is_some_and(|player| player.is_alive().unwrap_or(false));
+    state::client().modules.set_active(in_world && alive);
+    if !in_world || !alive {
+        return;
+    }
+    let Some(player) = player else {
+        return;
+    };
+
+    let tick_count = match player.get_tick_count() {
+        Ok(count) => count,
+        Err(_) => return,
     };
 
     if tick_count > LAST_TICK.load(Ordering::Relaxed) {

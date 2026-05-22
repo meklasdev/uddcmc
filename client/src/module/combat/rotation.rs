@@ -6,6 +6,7 @@
 //! exponential smoothing — frame-rate independent — is what makes the motion
 //! fluid, instead of the visible 20 Hz jumps of a per-tick approach.
 
+use crate::mapping::entity::EntityRef;
 use crate::mapping::math::Vec3;
 use crate::state::minecraft;
 use std::sync::Mutex;
@@ -151,12 +152,10 @@ fn ease_camera(target: Target, dt: f32) -> anyhow::Result<()> {
     let Some(player) = minecraft().player()? else {
         return Ok(());
     };
-    let entity = &player.entity;
-
-    let current = Rotation::new(entity.get_yaw()?, entity.get_pitch()?);
+    let current = Rotation::new(player.get_yaw()?, player.get_pitch()?);
     // Exponential smoothing — frame-rate independent, eased by construction.
     let alpha = 1.0 - (-target.speed * dt).exp();
     let next = current.lerp_towards(target.rotation, alpha);
 
-    entity.set_rotation(next.yaw, next.pitch)
+    player.set_rotation(next.yaw, next.pitch)
 }

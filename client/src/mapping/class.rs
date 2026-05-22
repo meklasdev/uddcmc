@@ -372,8 +372,13 @@ impl MinecraftClass {
         if let Ok(mut env) = state::env() {
             // Get the actual class of the object
             if let Ok(obj_class) = env.get_object_class(obj) {
-                // Check for exact class match first
-                if let Ok(expected_class) = env.find_class(expected_class_name) {
+                // Resolve through the captured game class loader: `find_class`
+                // cannot see `net.minecraft.*` from a native (render) thread,
+                // and a failed `find_class` leaks a pending JNI exception that
+                // poisons the next JNI call (e.g. the following `GetMethodID`).
+                if let Ok(expected_class) =
+                    state::mapping().resolve_class(&mut env, expected_class_name)
+                {
                     if let Ok(same_class) = env.is_same_object(&obj_class, &expected_class) {
                         if same_class {
                             return SignatureMatch::Exact;

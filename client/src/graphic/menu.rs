@@ -359,11 +359,15 @@ fn draw_module_row(ui: &mut Ui, name: &str, arc: &ModuleArc, registry: &ModuleMa
     } else if response.clicked() {
         let next = !enabled;
         module.get_module_data_mut().set_enabled(next);
-        let _ = if next {
-            module.on_start()
-        } else {
-            module.on_stop()
-        };
+        // Start/stop immediately only when in a world; at the menu the flag
+        // just arms the module for the next world entry.
+        if crate::state::client().modules.is_active() {
+            let _ = if next {
+                module.on_start()
+            } else {
+                module.on_stop()
+            };
+        }
     }
 
     // --- chevron + settings ---

@@ -1,6 +1,7 @@
 //! The module registry — every registered module, keyed by [`ModuleId`].
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use dashmap::DashMap;
@@ -26,6 +27,10 @@ pub struct ModuleRegistry {
     modules: DashMap<ModuleId, ModuleHandle>,
     /// Factory defaults captured at registration, keyed like `modules`.
     defaults: DashMap<ModuleId, ModuleDefaults>,
+    /// Whether modules may currently run — true only in a world with a living
+    /// player. At the main menu, or while the player is dead on the respawn
+    /// screen, modules stay armed (`enabled`) but inactive.
+    active: AtomicBool,
 }
 
 impl ModuleRegistry {
@@ -63,13 +68,46 @@ impl ModuleRegistry {
             let Ok(mut module) = entry.value().lock() else {
                 continue;
             };
-            if module.get_module_data().enabled {
+            if module.get_module_data().enabled && self.is_active() {
                 let _ = module.on_stop();
             }
             let data = module.get_module_data_mut();
             data.key_bind = defaults.key_bind;
             data.settings = defaults.settings.clone();
             data.enabled = false;
+        }
+    }
+
+    /// Whether modules may currently run — in a world, with a living player.
+    pub fn is_active(&self) -> bool {
+        self.active.load(Ordering::SeqCst)
+    }
+
+    /// Updates whether modules may run. On every transition each *enabled*
+    /// module is started or stopped — so a module armed at the menu only truly
+    /// runs once the player is in-game and alive, and stands down again when
+    /// they leave the world or die.
+    pub fn set_active(&self, active: bool) {
+        if self.active.swap(active, Ordering::SeqCst) == active {
+            return; // no transition
+        }
+        for handle in self.handles() {
+            let Ok(module) = handle.lock() else {
+                continue;
+            };
+            if !module.get_module_data().enabled {
+                continue;
+            }
+            let result = if active {
+                module.on_start()
+            } else {
+                module.on_stop()
+            };
+            if let Err(e) = result {
+                let name = module.get_module_data().name();
+                let verb = if active { "start" } else { "stop" };
+                error!("module '{name}' failed to {verb} on world transition: {e}");
+            }
         }
     }
 
@@ -121,6 +159,9 @@ impl ModuleRegistry {
     /// (the remaining modules are then skipped), otherwise
     /// [`PacketAction::Forward`].
     pub fn handle_packet(&self, packet: &mut Packet) -> PacketAction {
+        if !self.is_active() {
+            return PacketAction::Forward;
+        }
         for handle in self.handles() {
             let Ok(module) = handle.lock() else {
                 continue;

@@ -6,7 +6,7 @@ pub mod rotation;
 pub mod velocity;
 
 use crate::mapping::entity::player::LocalPlayer;
-use crate::mapping::entity::Entity;
+use crate::mapping::entity::{Entity, EntityRef};
 use crate::mapping::math::Vec3;
 use rotation::Rotation;
 
@@ -20,14 +20,14 @@ pub fn look_at(
     speed: f32,
     max_fov: f32,
 ) -> anyhow::Result<f32> {
-    let eye = player.entity.get_eye_position()?;
+    let eye = player.get_eye_position()?;
     let feet = target.get_position()?;
     let height = target.bb_height()? as f64;
     // Aim at the upper body — reliable hit registration, natural-looking.
     let aim = Vec3::new(feet.x(), feet.y() + height * 0.7, feet.z());
     let target_rotation = Rotation::towards(eye, aim);
 
-    let current = Rotation::new(player.entity.get_yaw()?, player.entity.get_pitch()?);
+    let current = Rotation::new(player.get_yaw()?, player.get_pitch()?);
     let angle = current.angle_to(target_rotation);
     if angle <= max_fov {
         rotation::aim(target_rotation, speed);

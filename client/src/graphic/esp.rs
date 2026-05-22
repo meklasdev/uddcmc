@@ -21,7 +21,7 @@ use crate::mapping::client::camera::Camera;
 use crate::mapping::client::world::World;
 use crate::mapping::entity::mob::Mob;
 use crate::mapping::entity::player::Player;
-use crate::mapping::entity::Entity;
+use crate::mapping::entity::{Entity, EntityRef, LivingEntityRef};
 use crate::mapping::math::Vec3;
 use crate::mapping::MappedObject;
 use crate::module::{ModuleId, ModuleSetting};
@@ -483,7 +483,7 @@ fn fov_modifier() -> f64 {
     if player.abilities.is_flying().unwrap_or(false) {
         modifier *= 1.1;
     }
-    if player.entity.is_sprinting().unwrap_or(false) {
+    if player.is_sprinting().unwrap_or(false) {
         modifier *= 1.15;
     }
     modifier
@@ -550,8 +550,8 @@ fn gather_entities(
         return Ok(Vec::new());
     };
 
-    let local_id = player.entity.id()?;
-    let player_pos: V3 = player.entity.get_position()?.into();
+    let local_id = player.id()?;
+    let player_pos: V3 = player.get_position()?.into();
 
     // Carry positions forward so the new snapshot can interpolate from them.
     let prev_pos: HashMap<i32, V3> = previous.iter().map(|e| (e.id, e.pos)).collect();
@@ -654,7 +654,7 @@ fn gather_chests() -> anyhow::Result<Vec<ChestTarget>> {
         return Ok(Vec::new());
     };
 
-    let player_pos: V3 = player.entity.get_position()?.into();
+    let player_pos: V3 = player.get_position()?.into();
     let pcx = (player_pos.x / 16.0).floor() as i32;
     let pcz = (player_pos.z / 16.0).floor() as i32;
 

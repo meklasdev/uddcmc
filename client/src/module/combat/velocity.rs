@@ -1,3 +1,4 @@
+use crate::mapping::entity::EntityRef;
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId, ModuleSetting};
 use crate::net::packet::{Packet, PacketAction};
 use crate::state::minecraft;
@@ -73,7 +74,7 @@ impl Module for VelocityModule {
     fn on_tick(&self) -> anyhow::Result<()> {
         // Refresh the cached player id; `handle_packet` reads it cross-thread.
         let id = match minecraft().player()? {
-            Some(player) => player.entity.id()?,
+            Some(player) => player.id()?,
             None => UNKNOWN_ID,
         };
         self.local_id.store(id, Ordering::Relaxed);

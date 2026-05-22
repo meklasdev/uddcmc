@@ -236,18 +236,22 @@ pub fn call_panic() {
     // while they still hold the state the user actually chose.
     crate::config::save();
 
+    // A module is only running — and so only needs stopping — while active.
+    let world_active = crate::state::client().modules.is_active();
     for handle in crate::state::client().modules.handles() {
         let Ok(mut module) = handle.lock() else {
             continue;
         };
         if module.get_module_data().enabled {
             module.get_module_data_mut().set_enabled(false);
-            if let Err(e) = module.on_stop() {
-                log::error!(
-                    "Failed to stop module {} on panic: {}",
-                    module.get_module_data().name(),
-                    e
-                );
+            if world_active {
+                if let Err(e) = module.on_stop() {
+                    log::error!(
+                        "Failed to stop module {} on panic: {}",
+                        module.get_module_data().name(),
+                        e
+                    );
+                }
             }
         }
     }

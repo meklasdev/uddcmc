@@ -133,8 +133,22 @@ fn ensure_installed_inner() -> anyhow::Result<()> {
     }
 
     install_on(&mut env, &connection)?;
-    STATE.lock().unwrap().installed_on = Some(connection);
-    log::info!("net: handler installed on the connection pipeline");
+    // `replace` returns the previous connection, if any — a `Some` means this
+    // is a *re*-install onto a fresh connection (a server change / reconnect),
+    // not the first install, so the log says which.
+    let reinstalled = STATE
+        .lock()
+        .unwrap()
+        .installed_on
+        .replace(connection)
+        .is_some();
+    if reinstalled {
+        log::info!(
+            "net: handler re-installed — the connection changed (server switch / reconnect)"
+        );
+    } else {
+        log::info!("net: handler installed on the connection pipeline");
+    }
     Ok(())
 }
 

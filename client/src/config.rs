@@ -234,14 +234,9 @@ pub fn load() {
         }
 
         set_expanded(id, saved.expanded);
-
-        // Re-enter a module that was saved enabled.
-        if saved.enabled {
-            if let Err(error) = module.on_start() {
-                let name = module.get_module_data().name();
-                log::warn!("config: '{name}' failed to start: {error}");
-            }
-        }
+        // `enabled` is only the armed flag here — the module is actually
+        // started later, on the menu→world transition (see `ModuleRegistry`),
+        // never at the main menu.
     }
 
     for panel in &config.panels {
