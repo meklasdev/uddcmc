@@ -2,20 +2,29 @@ use crate::mapping::entity::{EntityRef, LivingEntityRef};
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId};
 use crate::state::minecraft;
 
-/// Ground speed, in blocks/tick, the player is restored to while using an item
-/// — roughly vanilla walking speed.
-const NORMAL_SPEED: f64 = 0.1;
-/// Horizontal speed below which direction is too ill-defined to rescale.
-const EPSILON: f64 = 0.001;
+/// `UseEffects.DEFAULT.speedMultiplier` (`UseEffects.java`) — the factor the
+/// item-use slowdown scales movement input by.
+const USE_ITEM_MULTIPLIER: f64 = 0.2;
+/// Acceleration to add back, as a multiple of the slowed acceleration the game
+/// applied this tick, so the total reaches the un-slowed amount
+/// (`1/0.2 − 1 = 4`).
+const COMPENSATION: f64 = 1.0 / USE_ITEM_MULTIPLIER - 1.0;
+/// `getFrictionInfluencedSpeed` factor on a normal-friction (0.6) block:
+/// `0.21600002 / 0.6³` (`LivingEntity.getFrictionInfluencedSpeed`).
+const GROUND_SPEED_FACTOR: f64 = 0.21600002 / (0.6 * 0.6 * 0.6);
+/// Mirrors `getInputVector`'s `lengthSqr < 1.0E-7` zero-input guard.
+const INPUT_EPSILON: f64 = 1.0e-7;
 
 /// Cancels the movement slowdown Minecraft applies while an item is in use
 /// (eating, drawing a bow, blocking).
 ///
-/// The slowdown is client-side input physics with no hook to remove, so it is
-/// undone after the fact: while an item is in use, the player is on the ground
-/// and a movement key is held, the horizontal velocity is rescaled back up to
-/// normal walking speed. Gating on real input (`xxa`/`zza`) is what keeps the
-/// player from gliding once the keys are released.
+/// The slowdown scales the movement input to `0.2×` (`UseEffects.speedMultiplier`)
+/// before it accelerates the player, and there is no hook to skip it. So it is
+/// undone after the fact: every tick the *exact* acceleration that input would
+/// have produced un-slowed is reconstructed from `getInputVector`'s formula and
+/// the missing `4×` is added back to the velocity. Only the acceleration is
+/// touched — momentum and friction are left to the game, so releasing the keys
+/// still stops the player naturally.
 #[derive(Debug)]
 pub struct NoSlowdownModule {
     pub module: ModuleData,
@@ -49,21 +58,35 @@ impl Module for NoSlowdownModule {
         let Some(player) = minecraft().player()? else {
             return Ok(());
         };
-        // Only act while an item is in use, on the ground, with a key held —
-        // the last condition stops the player gliding after a key release.
-        if !player.is_using_item()? || !player.on_ground()? || !player.has_move_input()? {
+        // The slowdown only applies on the ground; air movement uses a
+        // different acceleration that this compensation would not match.
+        if !player.is_using_item()? || !player.on_ground()? {
             return Ok(());
         }
 
-        let motion = player.get_delta_movement()?;
-        let horizontal = (motion.x() * motion.x() + motion.z() * motion.z()).sqrt();
-        if horizontal <= EPSILON || horizontal >= NORMAL_SPEED {
-            return Ok(()); // standing still, or already up to speed
+        let (strafe, forward) = player.move_input()?;
+        let input_sq = (strafe * strafe + forward * forward) as f64;
+        if input_sq < INPUT_EPSILON {
+            return Ok(()); // no input — the game added no acceleration to undo
         }
 
-        // Rescale the slowed velocity back to normal speed, direction kept.
-        let scale = NORMAL_SPEED / horizontal;
-        player.set_delta_movement(motion.x() * scale, motion.y(), motion.z() * scale)
+        // Reconstruct the (slowed) acceleration the game added this tick, with
+        // `getInputVector`'s formula: scale the local input by the ground
+        // speed, then rotate it by the player's yaw into world space.
+        let speed = player.get_speed()? as f64 * GROUND_SPEED_FACTOR;
+        let (sin, cos) = (player.get_yaw()? as f64).to_radians().sin_cos();
+        let local_x = strafe as f64 * speed;
+        let local_z = forward as f64 * speed;
+        let accel_x = local_x * cos - local_z * sin;
+        let accel_z = local_z * cos + local_x * sin;
+
+        // Add the missing acceleration so the player moves as if un-slowed.
+        let motion = player.get_delta_movement()?;
+        player.set_delta_movement(
+            motion.x() + accel_x * COMPENSATION,
+            motion.y(),
+            motion.z() + accel_z * COMPENSATION,
+        )
     }
 
     fn get_module_data(&self) -> &ModuleData {

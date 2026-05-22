@@ -205,12 +205,25 @@ pub trait LivingEntityRef: EntityRef {
         Ok(self.call_method("isUsingItem", &[])?.z()?)
     }
 
+    /// The entity's movement input this tick — the strafe (`xxa`) and forward
+    /// (`zza`) impulse, in the entity's own local axes.
+    fn move_input(&self) -> anyhow::Result<(f32, f32)> {
+        let strafe = self.get_field("xxa", FieldType::Float)?.f()?;
+        let forward = self.get_field("zza", FieldType::Float)?.f()?;
+        Ok((strafe, forward))
+    }
+
     /// Whether the entity currently has movement input — a non-zero strafe
     /// (`xxa`) or forward (`zza`) impulse, i.e. a movement key is held.
     fn has_move_input(&self) -> anyhow::Result<bool> {
-        let strafe = self.get_field("xxa", FieldType::Float)?.f()?;
-        let forward = self.get_field("zza", FieldType::Float)?.f()?;
+        let (strafe, forward) = self.move_input()?;
         Ok(strafe != 0.0 || forward != 0.0)
+    }
+
+    /// The entity's movement speed (`getSpeed`) — the attribute-derived
+    /// per-tick speed, including sprint and potion modifiers.
+    fn get_speed(&self) -> anyhow::Result<f32> {
+        Ok(self.call_method("getSpeed", &[])?.f()?)
     }
 
     /// Plays the main-hand swing animation (and sends it to the server).
