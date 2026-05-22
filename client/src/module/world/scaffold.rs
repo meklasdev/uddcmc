@@ -4,9 +4,12 @@ use crate::mapping::math::{BlockPos, Vec3};
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId};
 use crate::state::minecraft;
 
-/// Places a block beneath the player whenever the support under their feet is
-/// missing — an auto-bridge. The held item is what gets placed, so the player
-/// should be holding blocks.
+/// Horizontal speed below which the player counts as standing still.
+const MOVING_THRESHOLD: f64 = 0.01;
+
+/// Bridges automatically: extends a line of blocks ahead of the player in the
+/// direction they are moving, so they can keep walking over a gap. The held
+/// item is what gets placed, so the player should be holding blocks.
 #[derive(Debug)]
 pub struct ScaffoldModule {
     pub module: ModuleData,
@@ -17,7 +20,7 @@ impl ScaffoldModule {
         Self {
             module: ModuleData {
                 id: ModuleId::Scaffold,
-                description: "Places blocks beneath the player".to_string(),
+                description: "Bridges blocks ahead of the player".to_string(),
                 category: ModuleCategory::World,
                 key_bind: KeyboardKey::KeyNone,
                 enabled: false,
@@ -50,15 +53,27 @@ impl Module for ScaffoldModule {
             return Ok(());
         };
 
-        // The block the player needs beneath their feet.
         let feet = player.get_position()?;
-        let target = BlockPos::new(
+        let support = BlockPos::new(
             feet.x().floor() as i32,
             feet.y().round() as i32 - 1,
             feet.z().floor() as i32,
         );
 
-        // Already supported — nothing to place.
+        // The block to place: the support under the feet if it has gone
+        // missing, otherwise the next block ahead in the movement direction —
+        // placed *before* the player reaches it, so the bridge is always ready.
+        let target = if world.is_block_air(&support)? {
+            support
+        } else {
+            let motion = player.get_delta_movement()?;
+            let Some((dx, dz)) = dominant_step(motion.x(), motion.z()) else {
+                return Ok(()); // standing still and supported — nothing to do
+            };
+            support.offset(dx, 0, dz)
+        };
+
+        // Already a block there — nothing to place.
         if !world.is_block_air(&target)? {
             return Ok(());
         }
@@ -84,6 +99,19 @@ impl Module for ScaffoldModule {
 
     fn get_module_data_mut(&mut self) -> &mut ModuleData {
         &mut self.module
+    }
+}
+
+/// The unit step `(dx, dz)` along the dominant horizontal movement axis, or
+/// `None` when the player is not moving.
+fn dominant_step(vx: f64, vz: f64) -> Option<(i32, i32)> {
+    if vx.abs() < MOVING_THRESHOLD && vz.abs() < MOVING_THRESHOLD {
+        return None;
+    }
+    if vx.abs() >= vz.abs() {
+        Some((vx.signum() as i32, 0))
+    } else {
+        Some((0, vz.signum() as i32))
     }
 }
 
