@@ -59,6 +59,7 @@ pub enum ModuleId {
     ChestStealer,
     AutoArmor,
     Nuker,
+    Scaffold,
 }
 
 impl ModuleId {
@@ -86,6 +87,7 @@ impl ModuleId {
             ModuleId::ChestStealer => "ChestStealer",
             ModuleId::AutoArmor => "AutoArmor",
             ModuleId::Nuker => "Nuker",
+            ModuleId::Scaffold => "Scaffold",
         }
     }
 }

@@ -2,3 +2,4 @@
 //! player.
 
 pub mod nuker;
+pub mod scaffold;

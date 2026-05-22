@@ -39,6 +39,7 @@ use crate::module::render::nametags::NametagsModule;
 use crate::module::render::player_esp::PlayerEspModule;
 use crate::module::render::tracers::TracersModule;
 use crate::module::world::nuker::NukerModule;
+use crate::module::world::scaffold::ScaffoldModule;
 use crate::state::{client, init};
 use log::{error, info, LevelFilter};
 use simplelog::{Config, WriteLogger};
@@ -135,4 +136,5 @@ fn register_modules() {
     modules.register(ChestStealerModule::new());
     modules.register(AutoArmorModule::new());
     modules.register(NukerModule::new());
+    modules.register(ScaffoldModule::new());
 }
