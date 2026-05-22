@@ -108,10 +108,10 @@ trampoline spills across the page boundary into the **next** page:
 ```
         page N (rounded-down start)        page N+1
  ┌─────────────────────────────────┐┌──────────────────────────────┐
- ...                  [ trampoline bytes .... ][ trampoline tail .. ]
-                      ^addr                    ^page boundary
-                      └──── mprotect covers only page N ────┘
-                                               └── tail stays NON-exec ──┘
+ ...       [ trampoline bytes .... ][ trampoline tail .. ]
+           ^addr                    ^page boundary
+           └── mprotect covers only page N ──┘
+                                    └── tail stays NON-exec ──┘
 ```
 
 `mprotect` makes page N executable. The trampoline tail that landed in page N+1 is
