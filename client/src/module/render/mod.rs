@@ -6,6 +6,7 @@
 //! without costing frame rate.
 
 pub mod chest_esp;
+pub mod fullbright;
 pub mod mob_esp;
 pub mod player_esp;
 pub mod tracers;

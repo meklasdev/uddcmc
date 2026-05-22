@@ -45,6 +45,7 @@ pub enum ModuleId {
     MobEsp,
     ChestEsp,
     Tracers,
+    Fullbright,
 }
 
 impl ModuleId {
@@ -61,6 +62,7 @@ impl ModuleId {
             ModuleId::MobEsp => "Mob ESP",
             ModuleId::ChestEsp => "Chest ESP",
             ModuleId::Tracers => "Tracers",
+            ModuleId::Fullbright => "Fullbright",
         }
     }
 }
