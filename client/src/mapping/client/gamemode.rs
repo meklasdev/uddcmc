@@ -110,6 +110,13 @@ impl MultiPlayerGameMode {
         self.destroy_block("continueDestroyBlock", pos, face)
     }
 
+    /// Aborts any block currently being broken — the server is told the player
+    /// stopped mining.
+    pub fn stop_destroy_block(&self) -> anyhow::Result<()> {
+        self.call_method("stopDestroyBlock", &[])?;
+        Ok(())
+    }
+
     /// Uses the player's held item against the `face` face of the block at
     /// `anchor`, hitting it at world point `hit` — placing a block at
     /// `anchor + face` when the held item is a block.

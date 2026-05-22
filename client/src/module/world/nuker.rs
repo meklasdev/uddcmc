@@ -54,7 +54,14 @@ impl Module for NukerModule {
     }
 
     fn on_stop(&self) -> anyhow::Result<()> {
-        *self.target.lock().unwrap() = None;
+        // Abort any block still being broken — never leave the server thinking
+        // the player is mining after the module is off.
+        let had_target = self.target.lock().unwrap().take().is_some();
+        if had_target {
+            if let Some(game_mode) = minecraft().game_mode()? {
+                game_mode.stop_destroy_block()?;
+            }
+        }
         Ok(())
     }
 
@@ -81,19 +88,37 @@ impl Module for NukerModule {
         );
         let range = self.range();
 
-        // Keep mining the cached target while it is still a block; otherwise
-        // scan the area for the nearest one.
+        // Keep mining the cached target only while it is still a block AND
+        // still in range — mining a block the player has walked away from is an
+        // instant ban. Otherwise scan the area for the nearest one.
         let mut target = self.target.lock().unwrap();
+        let previous = *target;
         let chosen = match *target {
-            Some(pos) if !world.is_block_air(&pos)? => Some(pos),
+            Some(pos) if in_range(pos, center, range) && !world.is_block_air(&pos)? => Some(pos),
             _ => nearest_block(&world, center, range)?,
         };
         *target = chosen;
         drop(target);
 
-        if let Some(pos) = chosen {
-            game_mode.start_destroy_block(&pos, MINING_FACE)?;
-            game_mode.continue_destroy_block(&pos, MINING_FACE)?;
+        match chosen {
+            // Same block as last tick — advance its breaking progress.
+            // `startDestroyBlock` must be sent only once: calling it every tick
+            // resets the progress, so the block would never finish.
+            Some(pos) if previous == Some(pos) => {
+                game_mode.continue_destroy_block(&pos, MINING_FACE)?;
+            }
+            // A new block — begin breaking it. `startDestroyBlock` also aborts
+            // whatever block was being broken before.
+            Some(pos) => {
+                game_mode.start_destroy_block(&pos, MINING_FACE)?;
+            }
+            // Nothing left in range — abort any block still in progress so the
+            // player is never seen mining a block they walked away from.
+            None => {
+                if previous.is_some() {
+                    game_mode.stop_destroy_block()?;
+                }
+            }
         }
         Ok(())
     }
@@ -105,6 +130,14 @@ impl Module for NukerModule {
     fn get_module_data_mut(&mut self) -> &mut ModuleData {
         &mut self.module
     }
+}
+
+/// Whether `pos` is within `range` blocks of `center`.
+fn in_range(pos: BlockPos, center: BlockPos, range: i32) -> bool {
+    let dx = pos.x() - center.x();
+    let dy = pos.y() - center.y();
+    let dz = pos.z() - center.z();
+    dx * dx + dy * dy + dz * dz <= range * range
 }
 
 /// The nearest non-air block within `range` of `center`, if any.
