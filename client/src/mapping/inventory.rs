@@ -22,6 +22,17 @@ impl Inventory {
         Inventory { jni_ref }
     }
 
+    /// Maps an `Inventory` index to its slot number in the `InventoryMenu`:
+    /// the hotbar (`Inventory` 0-8) sits at menu slots 36-44; the main storage
+    /// (`Inventory` 9-35) keeps the same numbers.
+    pub fn menu_slot(inventory_slot: i32) -> i32 {
+        if inventory_slot < 9 {
+            inventory_slot + 36
+        } else {
+            inventory_slot
+        }
+    }
+
     /// The item stack in `slot`.
     pub fn get_item(&self, slot: i32) -> anyhow::Result<ItemStack> {
         self.in_frame(|| {
@@ -105,6 +116,31 @@ impl AbstractContainerMenu {
             }
             Ok(items)
         })
+    }
+}
+
+/// A Minecraft `EquipmentSlot` — which equipment slot an item belongs to.
+#[derive(Debug, MappedObject)]
+#[mapped(class = EquipmentSlot)]
+pub struct EquipmentSlot {
+    jni_ref: GlobalRef,
+}
+
+impl EquipmentSlot {
+    /// Wraps an existing `EquipmentSlot` JVM object.
+    pub fn new(jni_ref: GlobalRef) -> EquipmentSlot {
+        EquipmentSlot { jni_ref }
+    }
+
+    /// Whether this is one of the four armor slots (head, chest, legs, feet).
+    pub fn is_armor(&self) -> anyhow::Result<bool> {
+        Ok(self.call_method("isArmor", &[])?.z()?)
+    }
+
+    /// This slot's `Inventory` index, given the armor block's base index — for
+    /// the player's inventory that base is `36`, giving slots `36..=39`.
+    pub fn index(&self, base: i32) -> anyhow::Result<i32> {
+        Ok(self.call_method("getIndex", &[JValue::Int(base)])?.i()?)
     }
 }
 

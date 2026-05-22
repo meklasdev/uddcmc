@@ -74,7 +74,7 @@ impl Module for AutoTotemModule {
         };
         game_mode.container_swap(
             INVENTORY_MENU_ID,
-            inventory_to_menu_slot(inventory_slot),
+            Inventory::menu_slot(inventory_slot),
             OFFHAND_SLOT,
             &player,
         )
@@ -106,16 +106,4 @@ fn find_totem(inventory: &Inventory, totem: &Item) -> anyhow::Result<Option<i32>
         }
     }
     Ok(None)
-}
-
-/// Maps an `Inventory` index to its slot number in the `InventoryMenu`.
-///
-/// The hotbar (`Inventory` 0-8) sits at menu slots 36-44; the main storage
-/// (`Inventory` 9-35) keeps the same numbers.
-fn inventory_to_menu_slot(inventory_slot: i32) -> i32 {
-    if inventory_slot < 9 {
-        inventory_slot + 36
-    } else {
-        inventory_slot
-    }
 }

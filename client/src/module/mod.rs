@@ -56,6 +56,7 @@ pub enum ModuleId {
     NoSlowdown,
     AutoTotem,
     ChestStealer,
+    AutoArmor,
 }
 
 impl ModuleId {
@@ -81,6 +82,7 @@ impl ModuleId {
             ModuleId::NoSlowdown => "NoSlowdown",
             ModuleId::AutoTotem => "AutoTotem",
             ModuleId::ChestStealer => "ChestStealer",
+            ModuleId::AutoArmor => "AutoArmor",
         }
     }
 }

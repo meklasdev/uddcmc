@@ -2,7 +2,7 @@
 //! by `LocalPlayer`.
 
 use crate::mapping::entity::{EntityRef, LivingEntityRef, PlayerRef};
-use crate::mapping::inventory::{AbstractContainerMenu, Inventory};
+use crate::mapping::inventory::{AbstractContainerMenu, EquipmentSlot, Inventory, ItemStack};
 use crate::mapping::{FieldType, MappedObject, MinecraftClassType};
 use crate::state::mapping;
 use jni::objects::{GlobalRef, JValue};
@@ -74,6 +74,23 @@ impl LocalPlayer {
                 )?
                 .l()?;
             Ok(AbstractContainerMenu::new(mapping().new_global_ref(menu)?))
+        })
+    }
+
+    /// The `EquipmentSlot` the item `stack` belongs to — an armor slot for
+    /// armor, `MAINHAND` otherwise. `getEquipmentSlotForItem` is declared on
+    /// `LivingEntity`.
+    pub fn equipment_slot_for_item(&self, stack: &ItemStack) -> anyhow::Result<EquipmentSlot> {
+        mapping().in_frame(|| {
+            let slot = mapping()
+                .call_method(
+                    MinecraftClassType::LivingEntity,
+                    self.jni_ref().as_obj(),
+                    "getEquipmentSlotForItem",
+                    &[JValue::Object(stack.jni_ref().as_obj())],
+                )?
+                .l()?;
+            Ok(EquipmentSlot::new(mapping().new_global_ref(slot)?))
         })
     }
 }

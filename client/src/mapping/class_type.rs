@@ -42,6 +42,7 @@ pub enum MinecraftClassType {
     Items,
     AbstractContainerMenu,
     ContainerInput,
+    EquipmentSlot,
     ChatScreen,
     PauseScreen,
     AbstractContainerScreen,
@@ -111,6 +112,7 @@ impl MinecraftClassType {
                 "net/minecraft/world/inventory/AbstractContainerMenu"
             }
             MinecraftClassType::ContainerInput => "net/minecraft/world/inventory/ContainerInput",
+            MinecraftClassType::EquipmentSlot => "net/minecraft/world/entity/EquipmentSlot",
             MinecraftClassType::ChatScreen => "net/minecraft/client/gui/screens/ChatScreen",
             MinecraftClassType::PauseScreen => "net/minecraft/client/gui/screens/PauseScreen",
             MinecraftClassType::AbstractContainerScreen => {

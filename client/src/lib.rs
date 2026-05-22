@@ -29,6 +29,7 @@ use crate::module::movement::nofall::NoFallModule;
 use crate::module::movement::noslowdown::NoSlowdownModule;
 use crate::module::movement::speed::SpeedModule;
 use crate::module::movement::sprint::SprintModule;
+use crate::module::player::autoarmor::AutoArmorModule;
 use crate::module::player::autototem::AutoTotemModule;
 use crate::module::player::cheststealer::ChestStealerModule;
 use crate::module::render::chest_esp::ChestEspModule;
@@ -131,4 +132,5 @@ fn register_modules() {
     modules.register(NoSlowdownModule::new());
     modules.register(AutoTotemModule::new());
     modules.register(ChestStealerModule::new());
+    modules.register(AutoArmorModule::new());
 }
