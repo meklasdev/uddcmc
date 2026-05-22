@@ -27,21 +27,21 @@ impl MultiPlayerGameMode {
         Ok(())
     }
 
-    /// Performs a SWAP container click: swaps menu slot `slot` of the container
-    /// `container_id` with an inventory hotbar slot (`hotbar_button` 0-8) or the
-    /// off-hand (`hotbar_button` 40). Sends the click to the server.
-    pub fn container_swap(
+    /// Issues a container click with the named `ContainerInput` action — sends
+    /// it to the server and applies it client-side.
+    fn container_click(
         &self,
         container_id: i32,
         slot: i32,
-        hotbar_button: i32,
+        button: i32,
+        action: &str,
         player: &LocalPlayer,
     ) -> anyhow::Result<()> {
         self.in_frame(|| {
-            let swap = mapping()
+            let input = mapping()
                 .get_static_field(
                     MinecraftClassType::ContainerInput,
-                    "SWAP",
+                    action,
                     FieldType::Object(MinecraftClassType::ContainerInput),
                 )?
                 .l()?;
@@ -50,12 +50,35 @@ impl MultiPlayerGameMode {
                 &[
                     JValue::Int(container_id),
                     JValue::Int(slot),
-                    JValue::Int(hotbar_button),
-                    JValue::Object(&swap),
+                    JValue::Int(button),
+                    JValue::Object(&input),
                     JValue::Object(player.jni_ref().as_obj()),
                 ],
             )?;
             Ok(())
         })
+    }
+
+    /// SWAP click: swaps menu slot `slot` of the container `container_id` with
+    /// an inventory hotbar slot (`hotbar_button` 0-8) or the off-hand (40).
+    pub fn container_swap(
+        &self,
+        container_id: i32,
+        slot: i32,
+        hotbar_button: i32,
+        player: &LocalPlayer,
+    ) -> anyhow::Result<()> {
+        self.container_click(container_id, slot, hotbar_button, "SWAP", player)
+    }
+
+    /// QUICK_MOVE click (shift-click): moves menu slot `slot`'s stack to its
+    /// default destination — into the inventory, or onto an equipment slot.
+    pub fn container_quick_move(
+        &self,
+        container_id: i32,
+        slot: i32,
+        player: &LocalPlayer,
+    ) -> anyhow::Result<()> {
+        self.container_click(container_id, slot, 0, "QUICK_MOVE", player)
     }
 }

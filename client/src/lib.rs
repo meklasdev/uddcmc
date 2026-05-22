@@ -30,6 +30,7 @@ use crate::module::movement::noslowdown::NoSlowdownModule;
 use crate::module::movement::speed::SpeedModule;
 use crate::module::movement::sprint::SprintModule;
 use crate::module::player::autototem::AutoTotemModule;
+use crate::module::player::cheststealer::ChestStealerModule;
 use crate::module::render::chest_esp::ChestEspModule;
 use crate::module::render::fullbright::FullbrightModule;
 use crate::module::render::mob_esp::MobEspModule;
@@ -129,4 +130,5 @@ fn register_modules() {
     modules.register(SpeedModule::new());
     modules.register(NoSlowdownModule::new());
     modules.register(AutoTotemModule::new());
+    modules.register(ChestStealerModule::new());
 }

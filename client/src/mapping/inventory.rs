@@ -1,6 +1,7 @@
 //! Wrappers for Minecraft's inventory layer — `Inventory`, `ItemStack`, `Item`
 //! and the open container menu.
 
+use crate::mapping::java::iterable::Iterable;
 use crate::mapping::{FieldType, MappedObject, MinecraftClassType};
 use crate::state::mapping;
 use jni::objects::{GlobalRef, JValue};
@@ -89,6 +90,21 @@ impl AbstractContainerMenu {
     /// This menu's network id — `0` is always the player's own inventory menu.
     pub fn container_id(&self) -> anyhow::Result<i32> {
         Ok(self.get_field("containerId", FieldType::Int)?.i()?)
+    }
+
+    /// Every slot's item stack, in slot order. A standard menu ends with the
+    /// player's own 36 inventory slots (27 storage + 9 hotbar).
+    pub fn get_items(&self) -> anyhow::Result<Vec<ItemStack>> {
+        self.in_frame(|| {
+            let list = self.call_method("getItems", &[])?.l()?;
+            let iterable = Iterable::new(mapping().new_global_ref(list)?);
+            let iterator = iterable.iterator()?;
+            let mut items = Vec::new();
+            while iterator.has_next()? {
+                items.push(ItemStack::new(iterator.next()?));
+            }
+            Ok(items)
+        })
     }
 }
 
