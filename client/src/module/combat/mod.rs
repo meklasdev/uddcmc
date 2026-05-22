@@ -1,5 +1,6 @@
 pub mod aimbot;
 pub mod aura;
+pub mod criticals;
 pub mod killaura;
 pub mod mobaura;
 pub mod rotation;

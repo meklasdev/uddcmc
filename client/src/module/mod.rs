@@ -50,6 +50,7 @@ pub enum ModuleId {
     AntiAfk,
     Sprint,
     Nametags,
+    Criticals,
 }
 
 impl ModuleId {
@@ -70,6 +71,7 @@ impl ModuleId {
             ModuleId::AntiAfk => "AntiAFK",
             ModuleId::Sprint => "Sprint",
             ModuleId::Nametags => "Nametags",
+            ModuleId::Criticals => "Criticals",
         }
     }
 }

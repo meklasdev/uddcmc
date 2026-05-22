@@ -2,6 +2,7 @@ use crate::mapping::entity::mob::Mob;
 use crate::mapping::entity::player::{LocalPlayer, Player};
 use crate::mapping::entity::{Entity, EntityRef, LivingEntityRef, PlayerRef};
 use crate::mapping::MappedObject;
+use crate::module::combat::criticals::{self, CritState};
 use crate::module::combat::{look_at, pick_target};
 use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId, ModuleSetting};
 use crate::state::minecraft;
@@ -184,8 +185,13 @@ impl Module for BaseAura {
         // camera there frame by frame).
         let angle = look_at(&player, &target, self.speed(), 180.0)?;
 
-        // Attack once roughly aligned and the timers allow it.
-        if angle <= self.attack_angle() && self.can_attack(&player)? {
+        // Attack once roughly aligned and the timers allow it. With Criticals
+        // armed the hit is held back until the player is hopped into the crit
+        // window; the CPS/cooldown timers only advance on a hit that lands.
+        if angle <= self.attack_angle()
+            && self.can_attack(&player)?
+            && criticals::prepare(&player)? == CritState::Ready
+        {
             game_mode.attack(&player, &target)?;
             player.swing()?;
             self.state.lock().unwrap().last_attack = Some(Instant::now());

@@ -19,6 +19,7 @@ pub mod gl {
 
 use crate::graphic::hook::{install_hooks, uninstall_hooks};
 use crate::module::combat::aimbot::AimbotModule;
+use crate::module::combat::criticals::CriticalsModule;
 use crate::module::combat::killaura::KillAuraModule;
 use crate::module::combat::mobaura::MobAuraModule;
 use crate::module::combat::velocity::VelocityModule;
@@ -112,6 +113,7 @@ fn register_modules() {
     modules.register(KillAuraModule::new());
     modules.register(MobAuraModule::new());
     modules.register(AimbotModule::new());
+    modules.register(CriticalsModule::new());
     modules.register(VelocityModule::new());
     modules.register(PlayerEspModule::new());
     modules.register(MobEspModule::new());
