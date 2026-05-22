@@ -262,21 +262,39 @@ struct TracerCfg {
     range: f32,
 }
 
+/// Name-tag options, snapshotted from the Nametags module once per frame.
+struct NametagCfg {
+    enabled: bool,
+    color: Color32,
+    show_health: bool,
+    show_distance: bool,
+    /// Maximum distance, in blocks, a name tag is drawn at.
+    range: f32,
+}
+
 struct EspConfig {
     player: EntityCfg,
     mob: EntityCfg,
     chest: ChestCfg,
     tracer: TracerCfg,
+    nametag: NametagCfg,
 }
 
 impl EspConfig {
     fn any_enabled(&self) -> bool {
-        self.player.enabled || self.mob.enabled || self.chest.enabled || self.tracer.enabled
+        self.player.enabled
+            || self.mob.enabled
+            || self.chest.enabled
+            || self.tracer.enabled
+            || self.nametag.enabled
     }
 
-    /// Whether players must be gathered — wanted by Player ESP or by tracers.
+    /// Whether players must be gathered — wanted by Player ESP, by tracers, or
+    /// by name tags.
     fn want_players(&self) -> bool {
-        self.player.enabled || (self.tracer.enabled && self.tracer.players)
+        self.player.enabled
+            || (self.tracer.enabled && self.tracer.players)
+            || self.nametag.enabled
     }
 
     /// Whether mobs must be gathered — wanted by Mob ESP or by tracers.
@@ -334,6 +352,13 @@ fn read_config() -> EspConfig {
             mobs: false,
             range: 0.0,
         },
+        nametag: NametagCfg {
+            enabled: false,
+            color: Color32::WHITE,
+            show_health: false,
+            show_distance: false,
+            range: 0.0,
+        },
     };
 
     let modules = &client().modules;
@@ -386,6 +411,18 @@ fn read_config() -> EspConfig {
             };
         }
     }
+    if let Some(arc) = modules.get(ModuleId::Nametags) {
+        if let Ok(module) = arc.lock() {
+            let data = module.get_module_data();
+            cfg.nametag = NametagCfg {
+                enabled: data.enabled,
+                color: color_setting(data, "Color", Color32::WHITE),
+                show_health: toggle_setting(data, "Health", true),
+                show_distance: toggle_setting(data, "Distance", false),
+                range: slider_setting(data, "Range", 96.0),
+            };
+        }
+    }
 
     cfg
 }
@@ -423,6 +460,9 @@ pub fn draw(ctx: &Context) {
         draw_entity(&painter, &view, entity, t, &cfg);
         if cfg.tracer.enabled {
             draw_tracer(&painter, &view, entity, t, &cfg.tracer);
+        }
+        if cfg.nametag.enabled {
+            draw_nametag(&painter, &view, entity, t, &cfg.nametag);
         }
     }
     for chest in &state.chests {
@@ -557,6 +597,9 @@ fn gather(state: &mut EspState, cfg: &EspConfig, now: Instant) {
         }
         if cfg.tracer.enabled {
             range = range.max(cfg.tracer.range);
+        }
+        if cfg.nametag.enabled {
+            range = range.max(cfg.nametag.range);
         }
         let range_sq = (range as f64) * (range as f64);
 
@@ -912,6 +955,44 @@ fn draw_tracer(painter: &Painter, view: &View, entity: &EntityTarget, t: f64, cf
     };
     let origin = pos2(view.w * 0.5, view.h);
     painter.line_segment([origin, target], Stroke::new(LINE_WIDTH, cfg.color));
+}
+
+/// Draws a floating name tag above one player — a background panel with the
+/// player's name, optionally their health and distance. Skips non-players,
+/// nameless entities, those past the range, or any behind the camera.
+fn draw_nametag(painter: &Painter, view: &View, entity: &EntityTarget, t: f64, cfg: &NametagCfg) {
+    if entity.kind != TargetKind::Player || entity.name.is_empty() {
+        return;
+    }
+
+    let feet = entity.prev.lerp(entity.pos, t);
+    let head = V3 {
+        x: feet.x,
+        y: feet.y + entity.height + 0.45,
+        z: feet.z,
+    };
+    if head.sub(view.cam).length() > cfg.range as f64 {
+        return;
+    }
+    let Some(anchor) = view.project(head) else {
+        return;
+    };
+
+    let mut label = entity.name.clone();
+    if cfg.show_health && entity.max_health > 0.0 {
+        label.push_str(&format!("  {:.0}\u{2764}", entity.health.max(0.0)));
+    }
+    if cfg.show_distance {
+        label.push_str(&format!("  {:.0}m", feet.sub(view.cam).length()));
+    }
+
+    let galley = painter.layout_no_wrap(label, FontId::proportional(12.0), cfg.color);
+    let pad = vec2(5.0, 2.5);
+    let size = galley.size() + pad * 2.0;
+    // The panel sits centred on, and just above, the anchor point.
+    let rect = Rect::from_min_size(pos2(anchor.x - size.x * 0.5, anchor.y - size.y), size);
+    painter.rect_filled(rect, Rounding::same(3.0), Color32::from_black_alpha(180));
+    painter.galley(rect.min + pad, galley, cfg.color);
 }
 
 fn draw_chest(painter: &Painter, view: &View, chest: &ChestTarget, cfg: &EspConfig) {

@@ -49,6 +49,7 @@ pub enum ModuleId {
     Fullbright,
     AntiAfk,
     Sprint,
+    Nametags,
 }
 
 impl ModuleId {
@@ -68,6 +69,7 @@ impl ModuleId {
             ModuleId::Fullbright => "Fullbright",
             ModuleId::AntiAfk => "AntiAFK",
             ModuleId::Sprint => "Sprint",
+            ModuleId::Nametags => "Nametags",
         }
     }
 }

@@ -29,6 +29,7 @@ use crate::module::movement::sprint::SprintModule;
 use crate::module::render::chest_esp::ChestEspModule;
 use crate::module::render::fullbright::FullbrightModule;
 use crate::module::render::mob_esp::MobEspModule;
+use crate::module::render::nametags::NametagsModule;
 use crate::module::render::player_esp::PlayerEspModule;
 use crate::module::render::tracers::TracersModule;
 use crate::state::{client, init};
@@ -119,4 +120,5 @@ fn register_modules() {
     modules.register(FullbrightModule::new());
     modules.register(AntiAfkModule::new());
     modules.register(SprintModule::new());
+    modules.register(NametagsModule::new());
 }
