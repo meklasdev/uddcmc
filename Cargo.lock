@@ -1557,8 +1557,6 @@ dependencies = [
 [[package]]
 name = "ilhook"
 version = "2.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c40cf69be52a2e8e2a375673ecfde90b7790aa9d8aa55dd463dc7e8faacb89c9"
 dependencies = [
  "bitflags 2.9.4",
  "iced-x86",

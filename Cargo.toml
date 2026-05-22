@@ -19,6 +19,13 @@ lto = true
 codegen-units = 1
 strip = true
 
+# Vendored, patched `ilhook`: upstream 2.3.0's `modify_mem_protect` on Unix
+# only mprotects a single page from the trampoline's start, but the trampoline
+# is a heap `Box<[u8; 1024]>` that often straddles a page boundary — the
+# spilled tail stays non-executable, an intermittent SIGSEGV. See vendor/ilhook.
+[patch.crates-io]
+ilhook = { path = "vendor/ilhook" }
+
 [workspace.dependencies]
 egui = "0.29.0"
 eframe = { version = "0.29", default-features = false, features = [
