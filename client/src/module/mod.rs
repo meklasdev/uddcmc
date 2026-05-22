@@ -3,6 +3,7 @@ use std::fmt::Debug;
 pub mod combat;
 pub mod misc;
 pub mod movement;
+pub mod player;
 pub mod registry;
 pub mod render;
 
@@ -53,6 +54,7 @@ pub enum ModuleId {
     Criticals,
     Speed,
     NoSlowdown,
+    AutoTotem,
 }
 
 impl ModuleId {
@@ -76,6 +78,7 @@ impl ModuleId {
             ModuleId::Criticals => "Criticals",
             ModuleId::Speed => "Speed",
             ModuleId::NoSlowdown => "NoSlowdown",
+            ModuleId::AutoTotem => "AutoTotem",
         }
     }
 }
