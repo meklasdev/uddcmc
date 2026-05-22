@@ -48,6 +48,7 @@ pub enum ModuleId {
     Tracers,
     Fullbright,
     AntiAfk,
+    Sprint,
 }
 
 impl ModuleId {
@@ -66,6 +67,7 @@ impl ModuleId {
             ModuleId::Tracers => "Tracers",
             ModuleId::Fullbright => "Fullbright",
             ModuleId::AntiAfk => "AntiAFK",
+            ModuleId::Sprint => "Sprint",
         }
     }
 }

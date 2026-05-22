@@ -109,6 +109,34 @@ pub trait EntityRef: MappedObject + Sized {
         Ok(self.call_method("isSprinting", &[])?.z()?)
     }
 
+    /// Sets the entity's sprinting flag.
+    fn set_sprinting(&self, value: bool) -> anyhow::Result<()> {
+        self.call_method("setSprinting", &[JValue::from(value)])?;
+        Ok(())
+    }
+
+    /// Whether the entity is currently standing on the ground.
+    fn on_ground(&self) -> anyhow::Result<bool> {
+        Ok(self.call_method("onGround", &[])?.z()?)
+    }
+
+    /// The entity's current velocity.
+    fn get_delta_movement(&self) -> anyhow::Result<Vec3> {
+        self.in_frame(|| {
+            let vec3 = self.call_method("getDeltaMovement", &[])?.l()?;
+            Vec3::read(&vec3)
+        })
+    }
+
+    /// Sets the entity's velocity.
+    fn set_delta_movement(&self, x: f64, y: f64, z: f64) -> anyhow::Result<()> {
+        self.call_method(
+            "setDeltaMovement",
+            &[JValue::Double(x), JValue::Double(y), JValue::Double(z)],
+        )?;
+        Ok(())
+    }
+
     /// Sets the entity's invulnerability flag.
     fn set_invulnerable(&self, value: bool) -> anyhow::Result<()> {
         self.call_method("setInvulnerable", &[JValue::from(value)])?;
