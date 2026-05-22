@@ -199,6 +199,20 @@ pub trait LivingEntityRef: EntityRef {
         Ok(!self.call_method("isDeadOrDying", &[])?.z()?)
     }
 
+    /// Whether the entity is currently using an item — eating, drawing a bow,
+    /// blocking with a shield, and so on.
+    fn is_using_item(&self) -> anyhow::Result<bool> {
+        Ok(self.call_method("isUsingItem", &[])?.z()?)
+    }
+
+    /// Whether the entity currently has movement input — a non-zero strafe
+    /// (`xxa`) or forward (`zza`) impulse, i.e. a movement key is held.
+    fn has_move_input(&self) -> anyhow::Result<bool> {
+        let strafe = self.get_field("xxa", FieldType::Float)?.f()?;
+        let forward = self.get_field("zza", FieldType::Float)?.f()?;
+        Ok(strafe != 0.0 || forward != 0.0)
+    }
+
     /// Plays the main-hand swing animation (and sends it to the server).
     fn swing(&self) -> anyhow::Result<()> {
         self.in_frame(|| {

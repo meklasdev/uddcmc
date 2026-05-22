@@ -52,6 +52,7 @@ pub enum ModuleId {
     Nametags,
     Criticals,
     Speed,
+    NoSlowdown,
 }
 
 impl ModuleId {
@@ -74,6 +75,7 @@ impl ModuleId {
             ModuleId::Nametags => "Nametags",
             ModuleId::Criticals => "Criticals",
             ModuleId::Speed => "Speed",
+            ModuleId::NoSlowdown => "NoSlowdown",
         }
     }
 }
