@@ -1,26 +1,45 @@
-use crate::mapping::entity::{EntityRef, LivingEntityRef};
-use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId, ModuleSetting};
+use crate::mapping::client::player_info::game_type_spectator;
+use crate::mapping::entity::EntityRef;
+use crate::module::{KeyboardKey, Module, ModuleCategory, ModuleData, ModuleId};
 use crate::net::packet::{Packet, PacketAction};
 use crate::state::minecraft;
+use jni::objects::GlobalRef;
 use std::sync::Mutex;
 
 /// Active Freecam state — present only while the module is running.
 #[derive(Debug)]
 struct FreecamState {
-    /// The body's real position. Outbound movement packets are pinned here so
-    /// the server keeps seeing the player stand still.
+    /// The body's real position — restored on disable. Outbound movement
+    /// packets are dropped while active, so the server keeps the player here.
     anchor: (f64, f64, f64),
-    /// The free view's current position — the player is teleported here every
-    /// tick, so the camera (which follows the player) flies with it.
-    position: (f64, f64, f64),
+    /// The body's yaw/pitch at the moment Freecam was switched on. Restored
+    /// on disable so the player is not left looking wherever the camera
+    /// stopped.
+    anchor_yaw: f32,
+    anchor_pitch: f32,
+    /// `PlayerInfo.gameMode` at the moment Freecam was switched on — used to
+    /// restore the real game mode on disable.
+    previous_game_mode: GlobalRef,
+    /// Whether the player was flying before — restored on disable.
+    previous_flying: bool,
+    /// Inbound `ClientboundPlayerInfoUpdatePacket`s caught while active. They
+    /// would otherwise overwrite our spectator override; instead they are
+    /// queued here and replayed in arrival order when Freecam stops.
+    queued_info_updates: Vec<GlobalRef>,
 }
 
-/// Detaches the view: the player flies freely through the world — no clip —
-/// while the server keeps seeing the body frozen where Freecam was switched on.
+/// Detaches the view by faking spectator mode client-side and silencing
+/// movement packets:
 ///
-/// The camera is left attached to the player; it is the *player* that is flown.
-/// Its movement packets are rewritten to the anchor in [`handle_packet`], so
-/// the body never actually moves as far as the server is concerned.
+/// * `PlayerInfo.gameMode` is set to `SPECTATOR`, so `Player.isSpectator()` is
+///   true. `Player.tick` then keeps `noPhysics` set every tick (no view-blocking
+///   overlay) and the body has no block collision.
+/// * The fly abilities are set, so the player flies instead of falling.
+/// * Every outbound `ServerboundMovePlayerPacket` is dropped, so the server
+///   keeps seeing the body at the anchor.
+/// * Inbound `ClientboundPlayerInfoUpdatePacket`s — which would tear down the
+///   spectator override — are queued and replayed only when Freecam stops, so
+///   the client's view of the player list catches up cleanly afterwards.
 #[derive(Debug)]
 pub struct FreecamModule {
     pub module: ModuleData,
@@ -36,22 +55,10 @@ impl FreecamModule {
                 category: ModuleCategory::Player,
                 key_bind: KeyboardKey::KeyNone,
                 enabled: false,
-                settings: vec![ModuleSetting::Slider {
-                    name: "Speed".to_string(),
-                    value: 1.0,
-                    min: 0.2,
-                    max: 3.0,
-                }],
+                settings: vec![],
             },
             state: Mutex::new(None),
         }
-    }
-
-    fn speed(&self) -> f64 {
-        self.module
-            .get_setting("Speed")
-            .and_then(|setting| setting.get_slider_value())
-            .unwrap_or(1.0) as f64
     }
 }
 
@@ -61,12 +68,24 @@ impl Module for FreecamModule {
             return Ok(());
         };
         let feet = player.get_position()?;
-        // Fly with no block collision; the server-side body is frozen via the
-        // packet rewrite in `handle_packet`.
-        player.set_no_physics(true)?;
+        let anchor_yaw = player.get_yaw()?;
+        let anchor_pitch = player.get_pitch()?;
+        let player_info = player.player_info()?;
+        let previous_game_mode = player_info.get_game_mode()?;
+        let previous_flying = player.abilities.is_flying()?;
+
+        // Switch the client to spectator without telling the server.
+        let spectator = game_type_spectator()?;
+        player_info.set_game_mode(&spectator)?;
+        player.abilities.fly(true)?;
+
         *self.state.lock().unwrap() = Some(FreecamState {
             anchor: (feet.x(), feet.y(), feet.z()),
-            position: (feet.x(), feet.y(), feet.z()),
+            anchor_yaw,
+            anchor_pitch,
+            previous_game_mode,
+            previous_flying,
+            queued_info_updates: Vec::new(),
         });
         Ok(())
     }
@@ -76,79 +95,49 @@ impl Module for FreecamModule {
             return Ok(());
         };
         if let Some(player) = minecraft().player()? {
-            player.set_no_physics(false)?;
-            // Snap the body back to where the server has kept it.
+            // Restore the real game mode + flight, then snap the body back to
+            // where the server has been keeping it.
+            if let Ok(info) = player.player_info() {
+                let _ = info.set_game_mode(&state.previous_game_mode);
+            }
+            player.abilities.fly(state.previous_flying)?;
             player.set_pos(state.anchor.0, state.anchor.1, state.anchor.2)?;
+            player.set_rotation(state.anchor_yaw, state.anchor_pitch)?;
             player.set_delta_movement(0.0, 0.0, 0.0)?;
+
+            // Replay every queued PlayerInfo update so the client catches up
+            // to anything the server announced (game-mode changes, latency, …).
+            for packet in &state.queued_info_updates {
+                if let Err(error) = player.forward_packet(packet) {
+                    log::warn!("Freecam: replay of a queued packet failed: {error}");
+                }
+            }
         }
         Ok(())
     }
 
     fn on_tick(&self) -> anyhow::Result<()> {
-        let Some(player) = minecraft().player()? else {
-            return Ok(());
-        };
-        let mut guard = self.state.lock().unwrap();
-        let Some(state) = guard.as_mut() else {
-            return Ok(());
-        };
-
-        // `Player.tick` resets `noPhysics` to `isSpectator()` every tick — so
-        // it must be re-asserted, or the view-blocking overlay (`Player.noPhysics`
-        // gate in `ScreenEffectRenderer`) would show as soon as the player is
-        // inside a block.
-        player.set_no_physics(true)?;
-
-        // Move the free view by the movement keys, in the look direction.
-        let (strafe, forward) = player.move_input()?;
-        let yaw = (player.get_yaw()? as f64).to_radians();
-        let (sin, cos) = yaw.sin_cos();
-        let mut wx = strafe as f64 * cos - forward as f64 * sin;
-        let mut wz = forward as f64 * cos + strafe as f64 * sin;
-        let horizontal = (wx * wx + wz * wz).sqrt();
-        if horizontal > 1.0e-4 {
-            wx /= horizontal;
-            wz /= horizontal;
-        } else {
-            wx = 0.0;
-            wz = 0.0;
-        }
-        let wy = match (player.is_jumping()?, player.is_shift_key_down()?) {
-            (true, false) => 1.0,
-            (false, true) => -1.0,
-            _ => 0.0,
-        };
-
-        let speed = self.speed();
-        state.position.0 += wx * speed;
-        state.position.1 += wy * speed;
-        state.position.2 += wz * speed;
-
-        // Teleport the player — and so the camera — to the free position.
-        // `setPos` leaves the previous-tick position alone, so the renderer
-        // still interpolates smoothly between ticks.
-        player.set_pos(state.position.0, state.position.1, state.position.2)?;
-        player.set_delta_movement(0.0, 0.0, 0.0)?;
         Ok(())
     }
 
     fn handle_packet(&self, packet: &mut Packet) -> PacketAction {
-        // Pin every outbound position to the anchor — the server must keep
-        // seeing the body where Freecam was switched on, not where it flies.
-        let Packet::ServerboundMovePlayer(move_packet) = packet else {
-            return PacketAction::Forward;
-        };
-        if move_packet.has_position {
-            if let Ok(guard) = self.state.lock() {
-                if let Some(state) = guard.as_ref() {
-                    move_packet.x = state.anchor.0;
-                    move_packet.y = state.anchor.1;
-                    move_packet.z = state.anchor.2;
-                    move_packet.on_ground = true;
+        match packet {
+            // Drop every outbound movement update — the server must keep
+            // seeing the body where Freecam was switched on.
+            Packet::ServerboundMovePlayer(_) => PacketAction::Cancel,
+            // Hold every inbound player-info update so it cannot stomp on the
+            // spectator override; replay them in arrival order on disable.
+            Packet::ClientboundPlayerInfoUpdate(captured) => {
+                if let Ok(mut guard) = self.state.lock() {
+                    if let Some(state) = guard.as_mut() {
+                        state.queued_info_updates.push(captured.jni_ref.clone());
+                        return PacketAction::Cancel;
+                    }
                 }
+                PacketAction::Forward
             }
+            _ => PacketAction::Forward,
         }
-        PacketAction::Forward
     }
 
     fn get_module_data(&self) -> &ModuleData {

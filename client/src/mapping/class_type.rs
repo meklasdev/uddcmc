@@ -31,6 +31,8 @@ pub enum MinecraftClassType {
     Vec3i,
     Map,
     Object,
+    PlayerInfo,
+    GameType,
     Options,
     OptionInstance,
     Integer,
@@ -59,6 +61,7 @@ pub enum MinecraftClassType {
     ServerboundMovePlayerPacketRot,
     ServerboundMovePlayerPacketStatusOnly,
     ClientboundSetEntityMotionPacket,
+    ClientboundPlayerInfoUpdatePacket,
 }
 
 impl MinecraftClassType {
@@ -102,6 +105,8 @@ impl MinecraftClassType {
             MinecraftClassType::Vec3i => "net/minecraft/core/Vec3i",
             MinecraftClassType::Map => "java/util/Map",
             MinecraftClassType::Object => "java/lang/Object",
+            MinecraftClassType::PlayerInfo => "net/minecraft/client/multiplayer/PlayerInfo",
+            MinecraftClassType::GameType => "net/minecraft/world/level/GameType",
             MinecraftClassType::Options => "net/minecraft/client/Options",
             MinecraftClassType::OptionInstance => "net/minecraft/client/OptionInstance",
             MinecraftClassType::Integer => "java/lang/Integer",
@@ -150,6 +155,9 @@ impl MinecraftClassType {
             }
             MinecraftClassType::ClientboundSetEntityMotionPacket => {
                 "net/minecraft/network/protocol/game/ClientboundSetEntityMotionPacket"
+            }
+            MinecraftClassType::ClientboundPlayerInfoUpdatePacket => {
+                "net/minecraft/network/protocol/game/ClientboundPlayerInfoUpdatePacket"
             }
         }
     }

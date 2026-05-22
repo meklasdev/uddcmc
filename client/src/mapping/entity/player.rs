@@ -1,6 +1,7 @@
 //! The player wrappers — `Player`, `LocalPlayer`, and the `Abilities` carried
 //! by `LocalPlayer`.
 
+use crate::mapping::client::player_info::PlayerInfo;
 use crate::mapping::entity::{EntityRef, LivingEntityRef, PlayerRef};
 use crate::mapping::inventory::{AbstractContainerMenu, EquipmentSlot, Inventory, ItemStack};
 use crate::mapping::{FieldType, MappedObject, MinecraftClassType};
@@ -74,6 +75,54 @@ impl LocalPlayer {
                 )?
                 .l()?;
             Ok(AbstractContainerMenu::new(mapping().new_global_ref(menu)?))
+        })
+    }
+
+    /// The client-side `PlayerInfo` for this player. The field is on
+    /// `AbstractClientPlayer`; reading it through `LocalPlayer` works in
+    /// reflected mode because `GetFieldID` walks superclasses.
+    pub fn player_info(&self) -> anyhow::Result<PlayerInfo> {
+        mapping().in_frame(|| {
+            let info = mapping()
+                .get_field(
+                    MinecraftClassType::LocalPlayer,
+                    self.jni_ref().as_obj(),
+                    "playerInfo",
+                    FieldType::Object(MinecraftClassType::PlayerInfo),
+                )?
+                .l()?;
+            if info.is_null() {
+                anyhow::bail!("LocalPlayer.playerInfo is null");
+            }
+            Ok(PlayerInfo::new(mapping().new_global_ref(info)?))
+        })
+    }
+
+    /// Re-delivers an inbound packet through the local player's packet
+    /// listener — the same path `Connection.channelRead` would take. Used by
+    /// a module to replay a packet it captured and queued earlier (e.g.
+    /// Freecam's queued `ClientboundPlayerInfoUpdatePacket`s).
+    pub fn forward_packet(&self, packet: &GlobalRef) -> anyhow::Result<()> {
+        mapping().in_frame(|| {
+            let mut env = mapping().get_env()?;
+            let listener = env
+                .get_field(
+                    self.jni_ref().as_obj(),
+                    "connection",
+                    "Lnet/minecraft/client/multiplayer/ClientPacketListener;",
+                )?
+                .l()?;
+            if listener.is_null() {
+                // No connection any more — nothing to deliver into.
+                return Ok(());
+            }
+            env.call_method(
+                packet.as_obj(),
+                "handle",
+                "(Lnet/minecraft/network/protocol/game/ClientGamePacketListener;)V",
+                &[JValue::Object(&listener)],
+            )?;
+            Ok(())
         })
     }
 

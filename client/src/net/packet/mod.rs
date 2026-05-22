@@ -12,11 +12,13 @@
 //! direction, and the dispatch only probes the variants of the right one
 //! ([`Packet::from_outbound`] / [`Packet::from_inbound`]).
 
+pub mod clientbound_player_info_update;
 pub mod clientbound_set_entity_motion;
 pub mod serverbound_move_player;
 
 use crate::mapping::MinecraftClassType;
 use crate::state::mapping;
+use clientbound_player_info_update::ClientboundPlayerInfoUpdatePacket;
 use clientbound_set_entity_motion::ClientboundSetEntityMotionPacket;
 use jni::objects::JObject;
 use jni::sys::jobject;
@@ -31,6 +33,9 @@ pub enum Packet {
     ServerboundMovePlayer(ServerboundMovePlayerPacket),
     /// Inbound `ClientboundSetEntityMotionPacket`.
     ClientboundSetEntityMotion(ClientboundSetEntityMotionPacket),
+    /// Inbound `ClientboundPlayerInfoUpdatePacket` — held by reference so a
+    /// module (Freecam) can queue and replay it unchanged.
+    ClientboundPlayerInfoUpdate(ClientboundPlayerInfoUpdatePacket),
 }
 
 /// What should happen to a packet after the modules have seen it. Returned by
@@ -65,6 +70,13 @@ impl Packet {
                 ClientboundSetEntityMotionPacket::read(env, packet)?,
             )));
         }
+        if is_instance(env, packet, clientbound_player_info_update::CLASS_TYPE)? {
+            return Ok(Some(Packet::ClientboundPlayerInfoUpdate(
+                ClientboundPlayerInfoUpdatePacket {
+                    jni_ref: env.new_global_ref(packet)?,
+                },
+            )));
+        }
         Ok(None)
     }
 
@@ -73,6 +85,11 @@ impl Packet {
         match self {
             Packet::ServerboundMovePlayer(packet) => packet.to_java(env),
             Packet::ClientboundSetEntityMotion(packet) => packet.to_java(env),
+            // Pass-through: never mutated, so dispatch never asks to rebuild.
+            // Return the original ref's raw handle for completeness.
+            Packet::ClientboundPlayerInfoUpdate(packet) => {
+                Ok(env.new_local_ref(packet.jni_ref.as_obj())?.into_raw())
+            }
         }
     }
 }
