@@ -23,7 +23,7 @@ DarkClient runs on **vanilla Minecraft**, **Fabric**, and **Forge/NeoForge**. It
 
 ## 🖼️ Preview
 
-![DarkClient GUI](assets/screenshot_gui.png)
+![DarkClient GUI](assets/darkclient_gui.png)
 
 ## 🚀 Features
 
