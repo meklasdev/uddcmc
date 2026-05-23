@@ -59,6 +59,14 @@ pub fn client() -> &'static Client {
     CLIENT.get().expect("client() used before client init")
 }
 
+/// The global client, or `None` if [`init`] never ran (or failed). Used by
+/// `cleanup_client`, which may run from the panic hook before `init` had a
+/// chance to succeed.
+#[inline]
+pub fn try_client() -> Option<&'static Client> {
+    CLIENT.get()
+}
+
 /// The running Minecraft game. Valid once [`init`] has succeeded.
 #[inline]
 pub fn minecraft() -> &'static Minecraft {

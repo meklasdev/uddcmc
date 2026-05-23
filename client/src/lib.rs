@@ -107,6 +107,15 @@ pub extern "C" fn cleanup_client() {
     RUNNING.store(false, Ordering::SeqCst);
     uninstall_hooks();
     crate::graphic::input::cleanup();
+    // Stop every still-active enabled module before the JNI mapping is torn
+    // down — without this, hot-reloading the library would leak whatever
+    // state the active modules installed (camera handles, packet listeners,
+    // overridden game modes, …) until the user toggled them off by hand.
+    // Guarded with `try_client` because the panic hook may reach here before
+    // `init` had a chance to succeed.
+    if let Some(client) = crate::state::try_client() {
+        client.modules.set_active(false);
+    }
     // Hooks are gone and `RUNNING` is clear, so nothing else touches the
     // global state — release the JVM references it holds before unload.
     crate::state::teardown();
