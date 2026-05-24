@@ -12,6 +12,135 @@ use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
+// --- egui keyboard events --------------------------------------------------
+
+/// Egui keyboard / text events accumulated by the GLFW callbacks while the
+/// overlay is open. Drained — and cleared — by `gather_egui_inputs` each
+/// frame, so widgets like `TextEdit` and `DragValue` (used by the color
+/// picker) receive characters and editing keys.
+pub static PENDING_EVENTS: Mutex<Vec<egui::Event>> = Mutex::new(Vec::new());
+
+fn push_event(event: egui::Event) {
+    if let Ok(mut queue) = PENDING_EVENTS.lock() {
+        queue.push(event);
+    }
+}
+
+fn translate_mods(mods: i32) -> egui::Modifiers {
+    let ctrl = mods & 0x2 != 0;
+    egui::Modifiers {
+        alt: mods & 0x4 != 0,
+        ctrl,
+        shift: mods & 0x1 != 0,
+        mac_cmd: false,
+        // On non-mac, egui treats `command` as `ctrl`.
+        command: ctrl,
+    }
+}
+
+/// Maps a GLFW key code to its [`egui::Key`] counterpart, or `None` for keys
+/// egui does not represent.
+fn translate_glfw_key(key: i32) -> Option<egui::Key> {
+    use egui::Key::*;
+    Some(match key {
+        32 => Space,
+        39 => Quote,
+        44 => Comma,
+        45 => Minus,
+        46 => Period,
+        47 => Slash,
+        48 => Num0,
+        49 => Num1,
+        50 => Num2,
+        51 => Num3,
+        52 => Num4,
+        53 => Num5,
+        54 => Num6,
+        55 => Num7,
+        56 => Num8,
+        57 => Num9,
+        59 => Semicolon,
+        61 => Equals,
+        65 => A,
+        66 => B,
+        67 => C,
+        68 => D,
+        69 => E,
+        70 => F,
+        71 => G,
+        72 => H,
+        73 => I,
+        74 => J,
+        75 => K,
+        76 => L,
+        77 => M,
+        78 => N,
+        79 => O,
+        80 => P,
+        81 => Q,
+        82 => R,
+        83 => S,
+        84 => T,
+        85 => U,
+        86 => V,
+        87 => W,
+        88 => X,
+        89 => Y,
+        90 => Z,
+        91 => OpenBracket,
+        92 => Backslash,
+        93 => CloseBracket,
+        96 => Backtick,
+        256 => Escape,
+        257 => Enter,
+        258 => Tab,
+        259 => Backspace,
+        260 => Insert,
+        261 => Delete,
+        262 => ArrowRight,
+        263 => ArrowLeft,
+        264 => ArrowDown,
+        265 => ArrowUp,
+        266 => PageUp,
+        267 => PageDown,
+        268 => Home,
+        269 => End,
+        // Numpad digits (GLFW_KEY_KP_0..9).
+        320 => Num0,
+        321 => Num1,
+        322 => Num2,
+        323 => Num3,
+        324 => Num4,
+        325 => Num5,
+        326 => Num6,
+        327 => Num7,
+        328 => Num8,
+        329 => Num9,
+        330 => Period,    // KP_DECIMAL
+        331 => Slash,     // KP_DIVIDE
+        333 => Minus,     // KP_SUBTRACT
+        334 => Plus,      // KP_ADD
+        335 => Enter,     // KP_ENTER
+        336 => Equals,    // KP_EQUAL
+        290..=301 => match key - 289 {
+            1 => F1,
+            2 => F2,
+            3 => F3,
+            4 => F4,
+            5 => F5,
+            6 => F6,
+            7 => F7,
+            8 => F8,
+            9 => F9,
+            10 => F10,
+            11 => F11,
+            12 => F12,
+            _ => return None,
+        },
+        _ => return None,
+    })
+}
+
 // --- Public input state ----------------------------------------------------
 
 /// Whether the overlay GUI is open. While open, input is consumed instead of
@@ -55,6 +184,7 @@ impl MouseState {
 
 const GLFW_RELEASE: i32 = 0;
 const GLFW_PRESS: i32 = 1;
+const GLFW_REPEAT: i32 = 2;
 const GLFW_MOUSE_BUTTON_LEFT: i32 = 0;
 const GLFW_MOUSE_BUTTON_RIGHT: i32 = 1;
 const GLFW_KEY_RIGHT_SHIFT: i32 = 344;
@@ -70,12 +200,14 @@ type MouseButtonFun = extern "C" fn(*mut c_void, i32, i32, i32);
 type CursorPosFun = extern "C" fn(*mut c_void, f64, f64);
 type KeyFun = extern "C" fn(*mut c_void, i32, i32, i32, i32);
 type ScrollFun = extern "C" fn(*mut c_void, f64, f64);
+type CharFun = extern "C" fn(*mut c_void, u32);
 
 type GetCurrentContext = extern "C" fn() -> *mut c_void;
 type SetMouseButtonCallback = extern "C" fn(*mut c_void, MouseButtonFun) -> *mut c_void;
 type SetCursorPosCallback = extern "C" fn(*mut c_void, CursorPosFun) -> *mut c_void;
 type SetKeyCallback = extern "C" fn(*mut c_void, KeyFun) -> *mut c_void;
 type SetScrollCallback = extern "C" fn(*mut c_void, ScrollFun) -> *mut c_void;
+type SetCharCallback = extern "C" fn(*mut c_void, CharFun) -> *mut c_void;
 type SetInputMode = extern "C" fn(*mut c_void, i32, i32);
 type SetCursorPos = extern "C" fn(*mut c_void, f64, f64);
 
@@ -91,6 +223,7 @@ struct GlfwHooks {
     original_cursor_pos: *mut c_void,
     original_key: *mut c_void,
     original_scroll: *mut c_void,
+    original_char: *mut c_void,
     set_input_mode: SetInputMode,
     set_cursor_pos: SetCursorPos,
 }
@@ -188,6 +321,22 @@ extern "C" fn on_key(window: *mut c_void, key: i32, scancode: i32, action: i32, 
         toggle_gui();
     }
 
+    // While the GUI is open, forward the keystroke to egui so text widgets
+    // (DragValue editing, TextEdit, the color picker's hex / numeric fields)
+    // see Backspace, arrows, Enter, digits, etc.
+    if gui_was_open {
+        if let Some(egui_key) = translate_glfw_key(key) {
+            let pressed = action != GLFW_RELEASE;
+            push_event(egui::Event::Key {
+                key: egui_key,
+                physical_key: None,
+                pressed,
+                repeat: action == GLFW_REPEAT,
+                modifiers: translate_mods(mods),
+            });
+        }
+    }
+
     // Swallow the event — instead of forwarding it — whenever the GUI is open,
     // or was open until this very keystroke closed it (so ESC closing the GUI
     // does not also reach Minecraft and open its pause menu).
@@ -203,6 +352,30 @@ extern "C" fn on_key(window: *mut c_void, key: i32, scancode: i32, action: i32, 
         if !hooks.original_key.is_null() {
             let original: KeyFun = unsafe { std::mem::transmute(hooks.original_key) };
             original(window, key, scancode, action, mods);
+        }
+    }
+}
+
+/// Text-input callback: receives Unicode codepoints already mapped through the
+/// active keyboard layout, so this — not `on_key` — is what supplies actual
+/// typed characters to egui text widgets.
+extern "C" fn on_char(window: *mut c_void, codepoint: u32) {
+    let gui_was_open = GUI_OPEN.load(Ordering::Relaxed);
+
+    if gui_was_open {
+        if let Some(ch) = char::from_u32(codepoint) {
+            push_event(egui::Event::Text(ch.to_string()));
+        }
+    }
+
+    if gui_was_open || GUI_OPEN.load(Ordering::Relaxed) {
+        return;
+    }
+
+    if let Some(hooks) = HOOKS.get() {
+        if !hooks.original_char.is_null() {
+            let original: CharFun = unsafe { std::mem::transmute(hooks.original_char) };
+            original(window, codepoint);
         }
     }
 }
@@ -330,6 +503,7 @@ fn install_glfw_hooks() -> Option<GlfwHooks> {
         let set_scroll = *library
             .get::<SetScrollCallback>(b"glfwSetScrollCallback")
             .ok()?;
+        let set_char = *library.get::<SetCharCallback>(b"glfwSetCharCallback").ok()?;
         let set_input_mode = *library.get::<SetInputMode>(b"glfwSetInputMode").ok()?;
         let set_cursor_pos = *library.get::<SetCursorPos>(b"glfwSetCursorPos").ok()?;
 
@@ -344,6 +518,7 @@ fn install_glfw_hooks() -> Option<GlfwHooks> {
         let original_cursor_pos = set_cursor_pos_cb(window, on_cursor_pos);
         let original_key = set_key(window, on_key);
         let original_scroll = set_scroll(window, on_scroll);
+        let original_char = set_char(window, on_char);
 
         // If the GUI was toggled on before hooks existed, release the cursor.
         if GUI_OPEN.load(Ordering::Relaxed) {
@@ -357,6 +532,7 @@ fn install_glfw_hooks() -> Option<GlfwHooks> {
             original_cursor_pos,
             original_key,
             original_scroll,
+            original_char,
             set_input_mode,
             set_cursor_pos,
         })
@@ -374,11 +550,12 @@ pub fn cleanup() {
     }
 
     type RestoreCallback = extern "C" fn(*mut c_void, *mut c_void) -> *mut c_void;
-    let restorations: [(&[u8], *mut c_void); 4] = [
+    let restorations: [(&[u8], *mut c_void); 5] = [
         (b"glfwSetMouseButtonCallback", hooks.original_mouse_button),
         (b"glfwSetCursorPosCallback", hooks.original_cursor_pos),
         (b"glfwSetKeyCallback", hooks.original_key),
         (b"glfwSetScrollCallback", hooks.original_scroll),
+        (b"glfwSetCharCallback", hooks.original_char),
     ];
     unsafe {
         for (name, original) in restorations {

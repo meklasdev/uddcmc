@@ -459,17 +459,23 @@ fn draw_settings(ui: &mut Ui, data: &mut ModuleData, arc: &ModuleArc, registry: 
                         ui.horizontal(|ui| {
                             ui.label(label(name));
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                // Alpha is fixed at 1.0 — the picker omits the
+                                // A channel; the stored alpha is preserved so
+                                // existing configs are not rewritten.
                                 let mut rgba = egui::Rgba::from_rgba_unmultiplied(
-                                    value[0], value[1], value[2], value[3],
+                                    value[0], value[1], value[2], 1.0,
                                 );
                                 let changed = egui::color_picker::color_edit_button_rgba(
                                     ui,
                                     &mut rgba,
-                                    egui::color_picker::Alpha::OnlyBlend,
+                                    egui::color_picker::Alpha::Opaque,
                                 )
                                 .changed();
                                 if changed {
-                                    *value = rgba.to_array();
+                                    let [r, g, b, _] = rgba.to_array();
+                                    value[0] = r;
+                                    value[1] = g;
+                                    value[2] = b;
                                 }
                             });
                         });

@@ -1,5 +1,5 @@
 use crate::cleanup_client;
-use crate::graphic::input::{GUI_OPEN, MOUSE_STATE};
+use crate::graphic::input::{GUI_OPEN, MOUSE_STATE, PENDING_EVENTS};
 use egui::Context;
 use egui_glow::Painter;
 use lazy_static::lazy_static;
@@ -58,7 +58,17 @@ pub fn gather_egui_inputs(
     ));
 
     if !GUI_OPEN.load(Ordering::Relaxed) {
+        // Drop any keystrokes captured during the brief window between the GUI
+        // closing and the next frame so they cannot leak into the next session.
+        if let Ok(mut queue) = PENDING_EVENTS.lock() {
+            queue.clear();
+        }
         return raw_input;
+    }
+
+    // Drain keyboard / text events pushed by the GLFW char + key callbacks.
+    if let Ok(mut queue) = PENDING_EVENTS.lock() {
+        raw_input.events.append(&mut queue);
     }
 
     let mut mouse = MOUSE_STATE.lock().unwrap();
