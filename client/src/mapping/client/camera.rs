@@ -39,4 +39,13 @@ impl Camera {
     pub fn pitch(&self) -> anyhow::Result<f32> {
         Ok(self.get_field("xRot", FieldType::Float)?.f()?)
     }
+
+    /// Vertical FOV, in degrees, actually used to render the current frame.
+    /// `Camera.fov` is recomputed each frame by `setupAndRender`, already
+    /// folding in the player's `getFieldOfViewModifier`, `fovEffectScale`,
+    /// and the water / lava / dying tweaks — so the ESP just reads it back
+    /// instead of recomputing the formula.
+    pub fn fov(&self) -> anyhow::Result<f32> {
+        Ok(self.get_field("fov", FieldType::Float)?.f()?)
+    }
 }

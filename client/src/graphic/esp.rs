@@ -521,40 +521,71 @@ fn read_view(state: &mut EspState, ctx: &Context) -> Option<View> {
         }
     };
 
-    // Ease the FOV toward its target — flying / sprinting transitions ramp
-    // smoothly instead of snapping the boxes (Minecraft eases it too, so an
-    // instant jump here would show up as a stutter).
-    let dt = ctx.input(|input| input.stable_dt).clamp(0.0, 0.1) as f64;
-    let blend = 1.0 - 0.5_f64.powf(dt / 0.05);
-    state.fov += (state.target_fov - state.fov) * blend;
+    let fov_deg = resolve_fov(&camera, state, ctx);
 
     Some(build_view(
         cam_pos,
         yaw,
         pitch,
-        state.fov,
+        fov_deg,
         rect.width(),
         rect.height(),
     ))
 }
 
-/// Reads the vertical field of view, in degrees, Minecraft is rendering with:
-/// the options value scaled by the flying / sprinting modifiers Minecraft
-/// itself applies. Without them the box drifts off entities while either is
-/// active (`GameRenderer.getFov` would give this directly, but its signature
-/// is not stable across versions).
-fn read_fov() -> f64 {
+/// Per-frame FOV resolution.
+///
+/// Preferred path: read `Camera.fov` directly — the game writes the actually
+/// rendered FOV there each frame, already folding in the player modifier, the
+/// `fovEffectScale` blend, and the water / lava / dying tweaks. The field
+/// only exists on newer builds (it is missing from the obfuscated 1.21.x
+/// mappings), so we fall back to recomputing the modifier from options on
+/// older versions and ease the result so transitions stay smooth.
+fn resolve_fov(camera: &Camera, state: &mut EspState, ctx: &Context) -> f64 {
+    if let Ok(fov) = camera.fov() {
+        if fov.is_finite() && fov > 0.0 {
+            // The cached easing state is no longer authoritative — re-seed it
+            // so an unexpected fall back later does not snap from a stale fov.
+            let snapped = (fov as f64).clamp(1.0, 179.0);
+            state.fov = snapped;
+            state.target_fov = snapped;
+            return snapped;
+        }
+    }
+
+    state.target_fov = formula_fov();
+    let dt = ctx.input(|input| input.stable_dt).clamp(0.0, 0.1) as f64;
+    let blend = 1.0 - 0.5_f64.powf(dt / 0.05);
+    state.fov += (state.target_fov - state.fov) * blend;
+    state.fov
+}
+
+/// Fallback FOV computation, used when [`Camera::fov`] is not exposed by the
+/// running build (notably the obfuscated 1.21.x line).
+///
+/// Mirrors what `Player.getFieldOfViewModifier` does:
+/// `lerp(fovEffectScale, 1.0, raw_modifier)`. Reading the blend factor is
+/// what fixes ESP misalignment with the "FOV Effects" slider set below 1 —
+/// the previous code always applied the full modifier and so drifted off
+/// entities whenever the player had the effect dialled down.
+fn formula_fov() -> f64 {
     let base = match read_option_fov() {
         Ok(fov) if fov.is_finite() && (1.0..=179.0).contains(&fov) => fov,
         _ => 70.0,
     };
-    (base * fov_modifier()).clamp(1.0, 179.0)
+    let raw = fov_modifier_raw();
+    let scale = read_fov_effect_scale().unwrap_or(1.0).clamp(0.0, 1.0);
+    let effective = 1.0 + (raw - 1.0) * scale;
+    (base * effective).clamp(1.0, 179.0)
 }
 
-/// The FOV multiplier Minecraft applies on top of the options value: ×1.1
-/// while flying and ≈×1.15 while sprinting — the constants from
-/// `Player.getFieldOfViewModifier`.
-fn fov_modifier() -> f64 {
+/// The raw FOV multiplier Minecraft would apply, before the `fovEffectScale`
+/// blend: ×1.1 while flying, ≈×1.15 while sprinting — the constants from
+/// `Player.getFieldOfViewModifier` for a player at vanilla movement speed.
+/// (The exact formula also factors in attribute-modified walking speed; the
+/// approximation only drifts under Speed/Slowness effects, where the FOV
+/// modifier is small to begin with.)
+fn fov_modifier_raw() -> f64 {
     let player = match minecraft().player() {
         Ok(Some(player)) => player,
         _ => return 1.0,
@@ -575,13 +606,17 @@ fn read_option_fov() -> anyhow::Result<f64> {
     Ok(minecraft().options()?.fov()?.get_int()? as f64)
 }
 
+/// Reads the "FOV Effects" accessibility slider (0.0..=1.0).
+fn read_fov_effect_scale() -> anyhow::Result<f64> {
+    minecraft().options()?.fov_effect_scale()?.get_double()
+}
+
 // --- gather ----------------------------------------------------------------
 
 /// Refreshes the snapshot: entities every call, chests on their own schedule.
 fn gather(state: &mut EspState, cfg: &EspConfig, now: Instant) {
     state.prev_gather = state.last_gather;
     state.last_gather = Some(now);
-    state.target_fov = read_fov();
 
     let want_players = cfg.want_players();
     let want_mobs = cfg.want_mobs();

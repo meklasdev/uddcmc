@@ -27,6 +27,21 @@ impl Options {
         })
     }
 
+    /// The "FOV Effects" slider (accessibility option), in `0.0..=1.0`. It is
+    /// the blend factor Minecraft uses when applying the player's FOV modifier
+    /// — `0.0` disables the effect entirely, `1.0` applies it fully.
+    pub fn fov_effect_scale(&self) -> anyhow::Result<OptionInstance> {
+        self.in_frame(|| {
+            let option = self
+                .get_field(
+                    "fovEffectScale",
+                    FieldType::Object(MinecraftClassType::OptionInstance),
+                )?
+                .l()?;
+            Ok(OptionInstance::new(mapping().new_global_ref(option)?))
+        })
+    }
+
     /// The brightness (gamma) option.
     pub fn gamma(&self) -> anyhow::Result<OptionInstance> {
         self.in_frame(|| {
