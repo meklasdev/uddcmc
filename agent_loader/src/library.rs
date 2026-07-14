@@ -130,3 +130,21 @@ fn schedule_temp_cleanup(temp: PathBuf) {
         }
     });
 }
+
+/// Scans the system temp directory and removes any orphaned `dark_client_*` files from previous sessions.
+pub fn cleanup_old_temp_files() {
+    let temp_dir = std::env::temp_dir();
+    if let Ok(entries) = std::fs::read_dir(temp_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if name.starts_with("dark_client_") {
+                        // Attempt to remove it. If it's currently loaded/locked by another process, this will silently fail, which is perfect.
+                        let _ = std::fs::remove_file(path);
+                    }
+                }
+            }
+        }
+    }
+}

@@ -30,7 +30,7 @@ fn draw_watermark(ctx: &Context, painter: &Painter) {
         (g.size().x, g.size().y)
     });
     let client_w = ctx.fonts(|f| {
-        f.layout_no_wrap("Client".to_owned(), font.clone(), theme::ACCENT)
+        f.layout_no_wrap("Client".to_owned(), font.clone(), theme::accent())
             .size()
             .x
     });
@@ -59,7 +59,7 @@ fn draw_watermark(ctx: &Context, painter: &Painter) {
             ne: 0.0,
             se: 0.0,
         },
-        theme::ACCENT,
+        theme::accent(),
     );
 
     let anchor = egui::pos2(rect.min.x + pad.x, rect.center().y);
@@ -75,7 +75,7 @@ fn draw_watermark(ctx: &Context, painter: &Painter) {
         Align2::LEFT_CENTER,
         "Client",
         font,
-        theme::ACCENT,
+        theme::accent(),
     );
 }
 
@@ -148,7 +148,7 @@ fn draw_arraylist(ctx: &Context, painter: &Painter) {
             rect.right_top() - Vec2::new(2.0, 0.0),
             Vec2::new(2.0, ROW_H),
         );
-        painter.rect_filled(tab, Rounding::ZERO, theme::with_alpha(theme::ACCENT, eased));
+        painter.rect_filled(tab, Rounding::ZERO, theme::with_alpha(theme::accent(), eased));
 
         painter.text(
             egui::pos2(rect.min.x + PAD_X, rect.center().y),

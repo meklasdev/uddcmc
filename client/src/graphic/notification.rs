@@ -27,7 +27,7 @@ impl NotificationType {
     /// Accent color for this severity.
     fn color(self) -> Color32 {
         match self {
-            NotificationType::Info => theme::ACCENT,
+            NotificationType::Info => theme::accent(),
             NotificationType::Warning => theme::WARN,
             NotificationType::Alert => theme::DANGER,
         }

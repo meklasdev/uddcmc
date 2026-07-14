@@ -30,6 +30,9 @@ fn agent_onload() {
     // (the injector's directory) — see `command::handle_connection`.
     info!("agent loader initialized");
 
+    // Clean up any orphaned temp files from previous sessions
+    library::cleanup_old_temp_files();
+
     platform::install_signal_handlers();
     jvm::start_monitor();
     server::start();

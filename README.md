@@ -1,249 +1,196 @@
-# 🎮 DarkClient - Minecraft Injection Client
+# 🔮 DarkClient — Premium Minecraft Injection Framework
 
-![Rust](https://img.shields.io/badge/Rust-1.95.0-orange.svg)
-![Minecraft](https://img.shields.io/badge/Minecraft-26.1.2-green.svg)
-![License](https://img.shields.io/badge/License-GNU%20GPL-blue)
-![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-lightgrey.svg)
+```text
+  ██████╗   █████╗  ██████╗ ██╗  ██╗ ██████╗██╗     ██╗███████╗███╗   ██╗████████╗
+  ██╔══██╗ ██╔══██╗ ██╔══██╗██║ ██╔╝██╔════╝██║     ██║██╔════╝████╗  ██║╚══██╔══╝
+  ██║  ██║ ███████║ ██████╔╝█████╔╝ ██║     ██║     ██║█████╗  ██╔██╗ ██║   ██║
+  ██║  ██║ ██╔══██║ ██╔══██╗██╔═██╗ ██║     ██║     ██║██╔══╝  ██║╚██╗██║   ██║
+  ██████╔╝ ██║  ██║ ██║  ██║██║  ██╗╚██████╗███████╗██║███████╗██║ ╚████║   ██║
+  ╚═════╝  ╚═╝  ╚═╝ ╚═╝  ╚═╝╚═╝  ╚═╝ ╚══════╝╚══════╝╚═╝╚══════╝╚═╝  ╚═══╝   ╚═╝
+```
 
-A Minecraft hacked client built in Rust, using JNI (Java Native Interface) for seamless integration with Minecraft's Java runtime. DarkClient provides a robust architecture for developing game modifications through dynamic library injection.
+<p align="center">
+  <img src="https://img.shields.io/badge/Rust-1.95.0%2B-orange.svg" alt="Rust 1.95.0+">
+  <img src="https://img.shields.io/badge/Java-JDK%2021-blue.svg" alt="JDK 21+">
+  <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-lightgrey.svg" alt="Windows | Linux">
+  <img src="https://img.shields.io/badge/Status-Premium%20Release-brightgreen.svg" alt="Premium Release">
+  <img src="https://img.shields.io/badge/License-GNU%20GPL%20v3-blue" alt="GPL License">
+</p>
 
-### Supported Minecraft Versions
+**DarkClient** is a state-of-the-art, high-performance Minecraft injection framework built entirely in Rust. It utilizes the **Java Native Interface (JNI)** to integrate directly with Minecraft's Java Runtime Environment (JVM) at near-zero overhead.
 
-- **Obfuscated builds** (≤ 1.21.11): bundled Mojmap mappings (`mappings.json`, currently 1.21.10).
-- **Unobfuscated builds** (26.1+): no mappings needed — names are resolved directly, method signatures via runtime JNI reflection. Latest tested: **26.1.2**.
+Featuring an ultra-modern premium design language, a hot-swappable module framework, multi-profile layouts, and real-time Netty packet interception, DarkClient provides the ultimate platform for game modification and JVM runtime analysis.
 
-The build auto-detects which mode to use at runtime. A single binary works on both.
+---
 
-### Supported Mod Loaders
+## 🖼️ Redesigned Interface Preview
 
-DarkClient runs on **vanilla Minecraft**, **Fabric**, and **Forge/NeoForge**. It auto-discovers the game's class loader (`KnotClassLoader` for Fabric, `TransformingClassLoader` for Forge/NeoForge), so injection is loader-agnostic.
+### 1. Premium Dark Launcher & Loader
+A completely redesigned, pixel-perfect launcher utilizing a minimalist dark UI theme. It supports sequential, live real-time progress steps for locating, hooking, and injecting client frameworks into the running JVM.
 
-> [!NOTE]
-> Fabric and Forge/NeoForge support requires an unobfuscated build (26.1+). Obfuscated Minecraft under a mod loader (intermediary/SRG names) is not supported.
+```text
+┌────────────────────────────────────────────────────────┐
+│  DARKCLIENT INJECTOR                                   │
+│  ────────────────────────────────────────────────────  │
+│  [🔄 Scan]                                  1 found    │
+│                                                        │
+│  ┌──────────────────────────────────────────────────┐  │
+│  │ ● PID 14242                                      │  │
+│  │   Minecraft 1.21.10 (Fabric / KnotClassLoader)   │  │
+│  └──────────────────────────────────────────────────┘  │
+│                                                        │
+│  ┌──────────────────────────────────────────────────┐  │
+│  │ ◌ Detecting target Java Virtual Machine...        │  │
+│  │   [████████████████████████░░░░] 75%             │  │
+│  └──────────────────────────────────────────────────┘  │
+│  ────────────────────────────────────────────────────  │
+│  [               INJECT PREMIUM CLIENT              ]  │
+└────────────────────────────────────────────────────────┘
+```
 
-## 🖼️ Preview
+### 2. ClickGUI Dashboard
+An in-game draggable dashboard with fluid spring physics. It includes custom-rendered animated toggle switches, smooth category sliders, precise choice combos, and keybind listeners that allow on-the-fly configuration.
 
-![DarkClient GUI](assets/darkclient_gui.png)
+---
 
-## 🚀 Features
+## ⚡ Premium Features
 
-- **🔧 Dynamic Library Injection**: Hot-swappable module system without requiring game restarts
-- **🎨 Cross-Platform GUI**: Beautiful injector interface built with egui
-- **🖥️ In-Game ClickGUI**: egui overlay with draggable category panels, per-module settings, scrollable lists and rebindable keys
-- **⌨️ Real-time Input Handling**: Advanced keyboard/mouse event processing for module toggling
-- **🗺️ Smart Mapping System**: Automatic obfuscation handling — bundled mappings for obfuscated builds, runtime JNI reflection for unobfuscated ones
-- **📡 Packet Layer**: Netty-pipeline interception (pure JNI, no JVMTI) for packet-level modules — powers NoFall and Velocity / Anti-Knockback
-- **🔄 Module Architecture**: Extensible module system for easy feature development
-- **💾 Persistent Config**: keybinds, settings, enabled modules and GUI layout saved across injections
-- **🧩 Mod Loader Support**: Works with vanilla Minecraft, Fabric, and Forge/NeoForge
-- **📊 Comprehensive Logging**: Detailed logging system for debugging and monitoring
-- **🔒 Thread-Safe Design**: Robust multi-threaded architecture with proper synchronization
+- **🚀 Live State Injection**: Hot-swap modifications dynamically without restarting Minecraft.
+- **🎨 Custom Aesthetic Themes**: Switch between premium presets (*Emerald, Aqua, Amethyst, Ruby, Gold, Sakura*) in real-time with responsive UI recalculation.
+- **📁 Multi-Profile System**: Save, switch, duplicate, and manage different module layouts (e.g. *Legit, Blatant, Custom*) stored safely with **atomic writes** to prevent any config corruption.
+- **📡 Netty-Pipeline Packet Interceptor**: Intercept and mutate raw client-server network traffic (pure JNI, no JVMTI) enabling flawless velocity control, anti-knockback, and packet spoofing.
+- **⚡ Advanced Rendering (ESP & HUD)**: World-space Player/Mob/Chest ESP rendering coupled with an elegant, always-on overlay HUD containing an animated presence factor staircase module list.
+- **🔒 Process Hygiene & Stability**: Fully automated startup cleaning routines that discover and remove orphaned temporary loader binaries, leaving your systems pristine.
 
-## 🏗️ Architecture
+---
 
-A Cargo workspace of five crates plus an `xtask` helper:
+## 🏗️ Technical Workspace Architecture
 
-### **Protocol** (`protocol/`)
-The shared contract between the injector and the agent: the localhost
-socket address and the typed command set, defined once so the two ends
-cannot drift apart.
+DarkClient is structured as a Cargo workspace consisting of five high-performance crates and an `xtask` orchestrator:
 
-### **Injector** (`injector/`)
-The injection tool — a redesigned egui GUI, a `--tui` terminal mode and
-`--list` / `--inject <pid>` headless modes — that handles:
-- Process detection (finding Minecraft instances)
-- Library injection into target processes (per-platform, behind a trait)
-- Status monitoring and error reporting
+```text
+DarkClient/
+├── 📁 protocol/             # High-speed injector ⇆ agent IPC socket contract
+├── 📁 injector/             # Premium Loader app (Sleek egui GUI & TUI CLI)
+├── 📁 agent_loader/         # Injected JVM bridge: Command server + hot-reload runtime
+├── 📁 client/               # Core client modification library
+│   └── 📁 src/
+│       ├── 📄 lib.rs        # Main DLL entry (initialize_client / cleanup_client)
+│       ├── 📄 state.rs      # Global mapping and client registration state
+│       ├── 📄 config.rs     # Atomic profile configurations & User Settings
+│       ├── 📁 mapping/      # JNI-to-JVM memory reflection layout mapping
+│       ├── 📁 graphic/      # ClickGUI, dynamic theme, input filters, and HUD
+│       ├── 📁 module/       # Base Module definitions and features registry
+│       └── 📁 net/          # Java Netty-pipeline packet hook & dispatcher
+├── 📁 mapping_derive/       # Rust proc-macro for automatic JVM object wrappers
+├── 📁 xtask/                # Custom workspace automation scripts
+├── 📄 mappings.json         # Obfuscated runtime mappings
+└── 📄 conversion.py         # Mojang map formatting utility
+```
 
-### **Agent Loader** (`agent_loader/`)
-A `cdylib` injected into the JVM. On load it provides:
-- Dynamic library loading and hot-reloading of the client
-- A TCP command server
-- A JVM health monitor and clean process lifecycle handling
-
-### **Client Library** (`client/`)
-The core modification framework featuring:
-- JNI integration with Minecraft's runtime
-- Module system for game modifications (combat, movement, render)
-- Mapping system for obfuscation handling
-- An in-game ClickGUI overlay, input processing and event management
-- A packet layer (`net/`) that injects a handler into Minecraft's Netty pipeline
-- Persistent configuration of keybinds, settings and GUI layout
-
-### **Mapping Derive** (`mapping_derive/`)
-A `proc-macro` crate providing `#[derive(MappedObject)]` for the JVM-object
-wrappers in the client — generates the JNI helper methods so each game
-wrapper stays a thin, safe handle.
+---
 
 ## 📋 Prerequisites
 
-- **Rust 1.95.0+** with Cargo package manager
-- **Java Development Kit (JDK) 21+**
-- **Minecraft Java Edition**
+To compile or develop DarkClient, ensure you have:
+- **Rust 1.95.0+** (using cargo)
+- **Java Development Kit (JDK) 21+** (for JNI headers and testing)
+- **Minecraft Java Edition** (Vanilla, Fabric, or Forge)
 
-## ⬇️ Download
+---
 
-If you prefer precompiled binaries instead of building from source:
-
-1. Go to the **Actions** tab on GitHub.
-2. Open the latest workflow run.
-3. Scroll to the bottom of the page to find the **Artifacts** section.
-4. Download the compiled binaries for your platform (**Linux** or **Windows**).
-
-This allows you to get up and running without waiting for compilation.
-
-## 🛠️ Installation & Setup
+## 🛠️ Compilation & Quick Start
 
 ### 1. Clone the Repository
 ```bash
-bash git clone https://github.com/TheDarkSword/DarkClient
-cd darkclient
+git clone https://github.com/meklasdev/uddcmc.git
+cd uddcmc
 ```
 
-### 2. Build the Project
+### 2. Format Mappings
+Generate Mojmap mappings for obfuscated builds (e.g. Minecraft 1.21.10):
+```bash
+python conversion.py
+```
+
+### 3. Compile the Workspace
+Compile the entire workspace with maximum optimization:
 ```bash
 cargo build --release
 ```
+*Note: Make sure that `libagent_loader` and `libclient` artifacts are placed in the same directory as the `injector` binary when starting injection.*
 
-### 3. Prepare Mappings
-The framework uses obfuscation mappings to interact with Minecraft:
-
-#### Convert Mojang mappings using the included Python script
-```python
-python conversion.py
-```
-#### Place the resulting mappings.json in the project root
-
-
-## 🎮 Usage
-
-### Quick Start
-
-1. **Launch the Injector**:
+### 4. Inject
+1. Launch Minecraft and load into the Main Menu or a World.
+2. Open a terminal with elevated privileges (`sudo` on Linux or Administrator on Windows) and start the launcher:
    ```bash
-   cd target/release
-   ./injector
+   ./target/release/injector
    ```
-> [!WARNING]
-> `libagent_loader` and `libclient` **must** be in the **same directory** where you run the injector.
+3. Click **Scan**, choose your Minecraft process, and hit **Inject Premium Client**.
+4. Press `Right Shift` (or your customized keybind) in-game to toggle the ClickGUI!
 
-2. **Start Minecraft** — you can inject from the main menu; modules stay
-   idle until you load a world
+---
 
-3. **In the Injector GUI**:
-- Click "Scan" to detect the Minecraft process
-- Select it and click "Inject" to load the modification framework
+## 🚀 Interactive Module Development
 
-4. **Use Modules**:
-- Modules can be toggled using their assigned keybinds
-- Check the log files for module status and debugging info
-
-### Module Development
-
-Create new modules by implementing the `Module` trait:
+Creating new client capabilities is straightforward. Simply implement the `Module` trait:
 
 ```rust
 use crate::module::{Module, ModuleData};
 
-pub struct CustomModule {
-   data: ModuleData,
-   // Your module-specific fields
+pub struct CustomSpeedModule {
+    data: ModuleData,
 }
 
-impl Module for CustomModule {
-   fn get_module_data(&self) -> &ModuleData {
-      &self.data
-   }
+impl Module for CustomSpeedModule {
+    fn get_module_data(&self) -> &ModuleData {
+        &self.data
+    }
 
-   fn get_module_data_mut(&mut self) -> &mut ModuleData {
-      &mut self.data
-   }
+    fn get_module_data_mut(&mut self) -> &mut ModuleData {
+        &mut self.data
+    }
 
-   fn on_start(&self) -> anyhow::Result<()> {
-      // Called when the module is enabled.
-      Ok(())
-   }
+    fn on_start(&self) -> anyhow::Result<()> {
+        log::info!("Speed module loaded.");
+        Ok(())
+    }
 
-   fn on_stop(&self) -> anyhow::Result<()> {
-      // Called when the module is disabled.
-      Ok(())
-   }
+    fn on_stop(&self) -> anyhow::Result<()> {
+        log::info!("Speed module unloaded.");
+        Ok(())
+    }
 
-   fn on_tick(&self) -> anyhow::Result<()> {
-      // Called every game tick while enabled.
-      Ok(())
-   }
+    fn on_tick(&self) -> anyhow::Result<()> {
+        // Manipulate game coordinates through JVM wrappers
+        Ok(())
+    }
 }
 ```
 
-Register it in `register_modules()` in `client/src/lib.rs`. Modules that need
-to read or rewrite network packets can also implement the optional
-`handle_packet` method — see NoFall and Velocity for examples.
-```text
-DarkClient/
-├── 📁 protocol/             # Shared injector ⇆ agent IPC contract
-├── 📁 injector/             # Injection tool (GUI / TUI / headless CLI)
-├── 📁 agent_loader/         # Injected cdylib: command server + client lifecycle
-├── 📁 client/               # Core modification framework
-│   └── 📁 src/
-│       ├── 📄 lib.rs        # Entry points (initialize_client / cleanup_client)
-│       ├── 📄 state.rs      # Global client + mapping state
-│       ├── 📄 config.rs     # Persistent config (keybinds, settings, GUI layout)
-│       ├── 📁 mapping/      # Minecraft mapping system (obfuscated + reflected)
-│       ├── 📁 graphic/      # Overlay, hooks, input, platform seam
-│       ├── 📁 module/       # Module framework + registry
-│       └── 📁 net/          # Netty packet layer (packet structs + dispatch)
-├── 📁 mapping_derive/       # proc-macro: #[derive(MappedObject)]
-├── 📁 xtask/                # Workspace task runner (cargo xtask e2e)
-├── 📄 mappings.json         # Minecraft obfuscation mappings
-├── 📄 conversion.py         # Mapping conversion utility
-└── 📄 Cargo.toml            # Workspace configuration
-```
+Register your module inside `register_modules()` located in `client/src/lib.rs` and the system will automatically handle binding, layout rendering, and configuration storage!
 
-## 🔧 Configuration
-### Files
-DarkClient writes nothing into `.minecraft` — all of its files live in the
-directory the **injector** is started from:
-- `app.log` — injector log
-- `agent_loader.log` — agent loader log
-- `dark_client.log` — client log
-- `dark_client_config.json` — persisted keybinds, settings, enabled modules and GUI layout
+---
 
-### Network Settings
-The injector and agent communicate over TCP `127.0.0.1:7878`, defined once in the `protocol` crate:
-```rust
-// protocol/src/lib.rs
-pub const SOCKET_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 7878);
-```
+## 🗺️ Product Roadmap
 
-## 🩹 Patched Dependencies
+- [x] Full UI/UX Visual Redesign (Dashboard, Minimal Dark aesthetics)
+- [x] Custom Theme presets and Dynamic Accent Color matching
+- [x] Multi-Profile Layout preservation with Atomic File operations
+- [x] Multi-stage loader sequence with real-time operations progress
+- [x] Temporary bin sanitation and automated system hygiene
+- [ ] In-game customizable HUD layout dragging and snapping
+- [ ] Auto-updating releases system linked with GitHub API releases
+- [ ] Scriptable JavaScript/Lua API for custom-made modules
 
-DarkClient vendors a **patched copy of [`ilhook`](https://crates.io/crates/ilhook)**
-(the inline-hook crate behind the frame hook) under `vendor/ilhook`, wired in through
-`[patch.crates-io]`. Upstream `ilhook` 2.3.0 has a Linux bug: its hook trampoline is a
-heap allocation that can straddle a page boundary, yet only one page is marked
-executable — so roughly one inject in four ended in a `SIGSEGV` in native code.
+---
 
-> 📄 Full write-up — causes, crash-log evidence and the fix:
-> [`docs/vendored-ilhook-fix.md`](docs/vendored-ilhook-fix.md)
+## ⚖️ Legal Notice
 
-## 🤝 Contributing
-1. **Fork** the repository
-2. **Create** a feature branch (`git checkout -b feature/amazing-module`)
-3. **Commit** your changes (`git commit -am 'Add amazing module'`)
-4. **Push** to the branch (`git push origin feature/amazing-module`)
-5. **Create** a Pull Request
+This software is designed solely for educational, research, and technical-audit purposes. Users are fully responsible for maintaining compliance with Mojang's EULA, commercial guidelines, and local regulations. The developers assume no liability for misuse.
 
-### Development Guidelines
-- Follow Rust best practices and use `cargo fmt`
-- Add comprehensive documentation for new modules
-- Include proper error handling and logging
-
-## ⚠️ Legal Notice
-This project is intended for educational and research purposes. Users are responsible for complying with:
-- Minecraft's Terms of Service
-- Mojang's Commercial Usage Guidelines
-- Local laws and regulations regarding game modifications
+---
 
 ## 📄 License
-This project is licensed under the GNU GPL License - see the [LICENSE](LICENSE) file for details.
+
+This project is licensed under the GPL-3.0 License. See the [LICENSE](LICENSE) file for more information.

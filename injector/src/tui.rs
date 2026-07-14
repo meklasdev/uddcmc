@@ -97,8 +97,11 @@ fn status_line(status: &InjectionStatus) -> (Color, String) {
     let color = match status {
         InjectionStatus::Idle => Color::Grey,
         InjectionStatus::Scanning => Color::Cyan,
-        InjectionStatus::Injecting(_) => Color::Yellow,
-        InjectionStatus::Done(_) => Color::Green,
+        InjectionStatus::Initializing => Color::Yellow,
+        InjectionStatus::DetectingJvm => Color::Yellow,
+        InjectionStatus::LoadingAgent => Color::Yellow,
+        InjectionStatus::ConnectingClient => Color::Yellow,
+        InjectionStatus::Finished(_) => Color::Green,
         InjectionStatus::Failed(_) => Color::Red,
     };
     (color, status.message())
