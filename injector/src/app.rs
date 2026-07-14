@@ -6,20 +6,26 @@
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::thread;
 
-use crate::inject;
-use crate::platform::{find_minecraft_processes, InjectError, ProcessInfo};
+use crate::inject::{self, ProgressStep};
+use crate::platform::{find_minecraft_processes, ProcessInfo};
 
 /// Where an injection attempt currently stands.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InjectionStatus {
     /// Idle and ready.
     Idle,
     /// A process scan is running.
     Scanning,
-    /// An injection into the given pid is in progress.
-    Injecting(u32),
-    /// The last injection into the given pid succeeded.
-    Done(u32),
+    /// Initializing state
+    Initializing,
+    /// Detecting JVM state
+    DetectingJvm,
+    /// Loading agent state
+    LoadingAgent,
+    /// Connecting client state
+    ConnectingClient,
+    /// Finished state
+    Finished(u32),
     /// The last action failed, with a human-readable reason.
     Failed(String),
 }
@@ -28,10 +34,13 @@ impl InjectionStatus {
     /// Short human-readable line suitable for a status bar.
     pub fn message(&self) -> String {
         match self {
-            InjectionStatus::Idle => "Ready.".to_string(),
-            InjectionStatus::Scanning => "Scanning for Minecraft…".to_string(),
-            InjectionStatus::Injecting(pid) => format!("Injecting into process {pid}…"),
-            InjectionStatus::Done(pid) => format!("Injected into process {pid}."),
+            InjectionStatus::Idle => "Pick a Minecraft instance and inject.".to_string(),
+            InjectionStatus::Scanning => "Searching Minecraft process...".to_string(),
+            InjectionStatus::Initializing => "Initializing loader core...".to_string(),
+            InjectionStatus::DetectingJvm => "Detecting target Java Virtual Machine...".to_string(),
+            InjectionStatus::LoadingAgent => "Loading agent library...".to_string(),
+            InjectionStatus::ConnectingClient => "Connecting client framework...".to_string(),
+            InjectionStatus::Finished(pid) => format!("Successfully injected into process {pid}!"),
             InjectionStatus::Failed(reason) => format!("Error: {reason}"),
         }
     }
@@ -43,7 +52,7 @@ pub struct InjectorApp {
     selected_pid: Option<u32>,
     status: InjectionStatus,
     /// Result channel of an in-flight injection, with its target pid.
-    pending: Option<(u32, Receiver<Result<(), InjectError>>)>,
+    pending: Option<(u32, Receiver<ProgressStep>)>,
 }
 
 impl InjectorApp {
@@ -114,36 +123,70 @@ impl InjectorApp {
 
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
-            let _ = tx.send(inject::inject(pid));
+            match inject::inject_with_progress(pid, &tx) {
+                Ok(()) => {
+                    tx.send(ProgressStep::Finished).ok();
+                }
+                Err(e) => {
+                    tx.send(ProgressStep::Failed(e.to_string())).ok();
+                }
+            }
         });
         self.pending = Some((pid, rx));
-        self.status = InjectionStatus::Injecting(pid);
+        self.status = InjectionStatus::Initializing;
     }
 
     /// Polls the injection worker. Front-ends call this once per frame/loop;
     /// returns `true` when the status changed so the GUI knows to repaint.
     pub fn poll(&mut self) -> bool {
-        let Some((pid, rx)) = &self.pending else {
-            return false;
+        let (pid, rx) = match &self.pending {
+            Some((p, r)) => (*p, r),
+            None => return false,
         };
-        let pid = *pid;
-        match rx.try_recv() {
-            Ok(result) => {
-                self.status = match result {
-                    Ok(()) => InjectionStatus::Done(pid),
-                    Err(e) => InjectionStatus::Failed(e.to_string()),
-                };
-                self.pending = None;
-                true
-            }
-            Err(TryRecvError::Empty) => false,
-            Err(TryRecvError::Disconnected) => {
-                self.status =
-                    InjectionStatus::Failed("injection worker stopped unexpectedly".to_string());
-                self.pending = None;
-                true
+        let mut changed = false;
+        let mut should_clear = false;
+
+        loop {
+            match rx.try_recv() {
+                Ok(step) => {
+                    match step {
+                        ProgressStep::Initializing => {
+                            self.status = InjectionStatus::Initializing;
+                        }
+                        ProgressStep::DetectingJvm => {
+                            self.status = InjectionStatus::DetectingJvm;
+                        }
+                        ProgressStep::LoadingAgent => {
+                            self.status = InjectionStatus::LoadingAgent;
+                        }
+                        ProgressStep::ConnectingClient => {
+                            self.status = InjectionStatus::ConnectingClient;
+                        }
+                        ProgressStep::Finished => {
+                            self.status = InjectionStatus::Finished(pid);
+                            should_clear = true;
+                        }
+                        ProgressStep::Failed(reason) => {
+                            self.status = InjectionStatus::Failed(reason);
+                            should_clear = true;
+                        }
+                    }
+                    changed = true;
+                }
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    self.status = InjectionStatus::Failed("injection worker stopped unexpectedly".to_string());
+                    should_clear = true;
+                    changed = true;
+                    break;
+                }
             }
         }
+
+        if should_clear {
+            self.pending = None;
+        }
+        changed
     }
 }
 

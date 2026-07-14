@@ -28,21 +28,48 @@ const CONNECT_RETRY_PAUSE: Duration = Duration::from_millis(100);
 /// Timeout for writing the command once connected.
 const WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// Progression steps during wtryskiwanie
+#[derive(Debug, Clone)]
+pub enum ProgressStep {
+    Initializing,
+    DetectingJvm,
+    LoadingAgent,
+    ConnectingClient,
+    Finished,
+    Failed(String),
+}
+
 /// Injects the agent into `pid` (unless already present) and triggers a
 /// client (re)load. Blocking — callers run it off the UI thread.
 pub fn inject(pid: u32) -> Result<(), InjectError> {
+    let (tx, _) = std::sync::mpsc::channel();
+    inject_with_progress(pid, &tx)
+}
+
+/// Injection with detailed stage-by-stage progression updates.
+pub fn inject_with_progress(pid: u32, tx: &std::sync::mpsc::Sender<ProgressStep>) -> Result<(), InjectError> {
+    tx.send(ProgressStep::Initializing).ok();
+    std::thread::sleep(Duration::from_millis(150));
+
     let injector = PlatformInjector;
 
     let agent_file = library_file_name(AGENT_BASE);
     let agent_path = locate_library(&agent_file)?;
     let client_path = locate_library(&library_file_name(CLIENT_BASE))?;
 
+    tx.send(ProgressStep::DetectingJvm).ok();
+    std::thread::sleep(Duration::from_millis(250));
+
     if injector.is_agent_loaded(pid, &agent_file) {
         info!("agent already present in pid {pid}; reloading client only");
     } else {
+        tx.send(ProgressStep::LoadingAgent).ok();
+        std::thread::sleep(Duration::from_millis(250));
         injector.inject(pid, &agent_path)?;
     }
 
+    tx.send(ProgressStep::ConnectingClient).ok();
+    std::thread::sleep(Duration::from_millis(250));
     send_reload(&client_path)
 }
 
