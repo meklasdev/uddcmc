@@ -1,11 +1,14 @@
 //! Centralized visual theme for the in-game overlay.
+//! Optimized for "KRASNOSTAV Minecraft" with deep charcoal background,
+//! subtle borders, and glowing neon blue accenting.
 
 use egui::{Color32, Context, Margin, Rounding, Stroke, Style, Vec2, Visuals};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 // --- Palette ---------------------------------------------------------------
 
-static ACCENT_COLOR: AtomicU32 = AtomicU32::new(0x26C69CFF); // Emerald default
+// #3b82f6 (Neon Blue / Electric Blue)
+static ACCENT_COLOR: AtomicU32 = AtomicU32::new(0x3B82F6FF);
 
 /// Brand color: highlights, enabled modules, headers, focus rings.
 pub fn accent() -> Color32 {
@@ -30,36 +33,36 @@ pub fn set_accent(color: Color32) {
 pub fn accent_dim() -> Color32 {
     let c = accent();
     Color32::from_rgb(
-        (c.r() as f32 * 0.7) as u8,
-        (c.g() as f32 * 0.7) as u8,
-        (c.b() as f32 * 0.7) as u8,
+        (c.r() as f32 * 0.6) as u8,
+        (c.g() as f32 * 0.6) as u8,
+        (c.b() as f32 * 0.6) as u8,
     )
 }
 
-/// Backgrounds, darkest to lightest.
-pub const BASE: Color32 = Color32::from_rgb(14, 15, 19);
-pub const SURFACE: Color32 = Color32::from_rgb(20, 21, 26);
-pub const SURFACE_HOVER: Color32 = Color32::from_rgb(28, 29, 37);
-pub const ELEVATED: Color32 = Color32::from_rgb(24, 25, 31);
+/// Backgrounds matching Breeze Dev-Local theme.
+pub const BASE: Color32 = Color32::from_rgb(15, 15, 17);         // #0F0F11
+pub const SURFACE: Color32 = Color32::from_rgb(22, 22, 27);      // #16161B
+pub const SURFACE_HOVER: Color32 = Color32::from_rgb(30, 30, 38);
+pub const ELEVATED: Color32 = Color32::from_rgb(26, 26, 32);
 
 /// Borders and separators.
-pub const BORDER: Color32 = Color32::from_rgb(38, 39, 48);
+pub const BORDER: Color32 = Color32::from_rgb(44, 44, 54);
 
 /// Text shades, brightest to dimmest.
-pub const TEXT: Color32 = Color32::from_rgb(238, 240, 245);
-pub const TEXT_DIM: Color32 = Color32::from_rgb(145, 148, 160);
-pub const TEXT_MUTED: Color32 = Color32::from_rgb(85, 88, 98);
+pub const TEXT: Color32 = Color32::from_rgb(240, 242, 248);
+pub const TEXT_DIM: Color32 = Color32::from_rgb(155, 158, 172);
+pub const TEXT_MUTED: Color32 = Color32::from_rgb(95, 98, 110);
 
 /// Status colors for notifications.
-pub const WARN: Color32 = Color32::from_rgb(240, 170, 60);
-pub const DANGER: Color32 = Color32::from_rgb(226, 74, 74);
+pub const WARN: Color32 = Color32::from_rgb(245, 158, 11);
+pub const DANGER: Color32 = Color32::from_rgb(239, 68, 68);
 
 // --- Presets ---------------------------------------------------------------
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
 pub enum AccentPreset {
-    #[default]
     Emerald,
+    #[default]
     Aqua,
     Amethyst,
     Ruby,
@@ -70,19 +73,19 @@ pub enum AccentPreset {
 impl AccentPreset {
     pub fn color(self) -> Color32 {
         match self {
-            AccentPreset::Emerald => Color32::from_rgb(38, 198, 156),
-            AccentPreset::Aqua => Color32::from_rgb(0, 210, 255),
-            AccentPreset::Amethyst => Color32::from_rgb(124, 108, 246),
-            AccentPreset::Ruby => Color32::from_rgb(229, 75, 75),
-            AccentPreset::Gold => Color32::from_rgb(255, 176, 0),
-            AccentPreset::Sakura => Color32::from_rgb(255, 105, 180),
+            AccentPreset::Emerald => Color32::from_rgb(16, 185, 129),
+            AccentPreset::Aqua => Color32::from_rgb(59, 130, 246), // Neon Blue #3b82f6
+            AccentPreset::Amethyst => Color32::from_rgb(139, 92, 246),
+            AccentPreset::Ruby => Color32::from_rgb(239, 68, 68),
+            AccentPreset::Gold => Color32::from_rgb(245, 158, 11),
+            AccentPreset::Sakura => Color32::from_rgb(236, 72, 153),
         }
     }
 
     pub fn name(self) -> &'static str {
         match self {
             AccentPreset::Emerald => "Emerald",
-            AccentPreset::Aqua => "Aqua",
+            AccentPreset::Aqua => "Neon Blue",
             AccentPreset::Amethyst => "Amethyst",
             AccentPreset::Ruby => "Ruby",
             AccentPreset::Gold => "Gold",
@@ -94,9 +97,9 @@ impl AccentPreset {
 // --- Metrics ---------------------------------------------------------------
 
 /// Corner radius for panels.
-pub const RADIUS: f32 = 10.0;
+pub const RADIUS: f32 = 12.0;
 /// Corner radius for inner widgets (rows, buttons, cards).
-pub const RADIUS_INNER: f32 = 6.0;
+pub const RADIUS_INNER: f32 = 8.0;
 
 // --- Style installation ----------------------------------------------------
 
@@ -112,10 +115,10 @@ pub fn apply(ctx: &Context) {
     v.window_stroke = Stroke::new(1.0_f32, BORDER);
     v.window_rounding = Rounding::same(RADIUS);
     v.window_shadow = egui::epaint::Shadow {
-        offset: Vec2::new(0.0, 8.0),
-        blur: 32.0,
+        offset: Vec2::new(0.0, 10.0),
+        blur: 40.0,
         spread: 0.0,
-        color: Color32::from_black_alpha(160),
+        color: Color32::from_black_alpha(180),
     };
     v.popup_shadow = v.window_shadow;
 
@@ -156,11 +159,11 @@ pub fn apply(ctx: &Context) {
 
     style.visuals = v;
 
-    style.spacing.item_spacing = Vec2::new(6.0, 6.0);
+    style.spacing.item_spacing = Vec2::new(8.0, 8.0);
     style.spacing.window_margin = Margin::same(0.0);
-    style.spacing.button_padding = Vec2::new(10.0, 6.0);
-    style.spacing.interact_size.y = 18.0;
-    style.spacing.slider_width = 120.0;
+    style.spacing.button_padding = Vec2::new(12.0, 8.0);
+    style.spacing.interact_size.y = 20.0;
+    style.spacing.slider_width = 140.0;
 
     style.animation_time = 0.22;
 
