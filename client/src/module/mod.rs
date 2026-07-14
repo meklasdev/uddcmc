@@ -7,6 +7,7 @@ pub mod player;
 pub mod registry;
 pub mod render;
 pub mod world;
+pub mod lua;
 
 pub type ModuleType = Box<dyn Module + Send + Sync>;
 
