@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KRASNOSTAV Client Dashboard</title>
+    <!-- Tailwind CSS UMD -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        base: '#0F0F11',
+                        surface: '#16161B',
+                        surfaceHover: '#1E1E26',
+                        elevated: '#1A1A20',
+                        borderClr: '#2C2C36',
+                        accent: '#3b82f6',
+                        accentDim: 'rgba(59, 130, 246, 0.15)',
+                        textMuted: '#5F626E',
+                        textDim: '#9B9ECC',
+                        textBright: '#F0F2F8',
+                        danger: '#EF4444',
+                        success: '#10B981',
+                        warning: '#F59E0B'
+                    },
+                    borderRadius: {
+                        'radius': '12px',
+                        'radiusInner': '8px'
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0F0F11;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #2C2C36;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #3b82f6;
+        }
+        @keyframes pulse-glow {
+            0%, 100% { opacity: 0.4; }
+            50% { opacity: 0.9; }
+        }
+        .glow-dot {
+            animation: pulse-glow 2s infinite;
+        }
+    </style>
+    <!-- React and Babel UMD -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-base text-textBright font-sans antialiased overflow-hidden select-none">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // Mock Initial Local Scripts Database
+        const initialScripts = [
+            {
+                id: 'pingspoof',
+                name: 'PingSpoof.lua',
+                description: 'Delays all packets by a set amount of time.',
+                category: 'Packet',
+                enabled: true,
+                keybind: 'P',
+                keybindMode: 'Toggle', // Toggle, Hold
+                settings: [
+                    { id: 'delay', type: 'IntSetting', name: 'Delay', description: 'The amount of ms to delay each packet for', value: 500, min: 0, max: 5000 }
+                ],
+                code: `-- krasnostav_pingspoof.lua
+local script = {
+    name = "PingSpoof",
+    description = "Delays all packets by a set amount of time."
+}
+
+-- Dynamically registers a setting that the UI must render
+local delay = script:registerSetting("IntSetting", "Delay", "The amount of ms to delay each packet for", 500, 0, 5000)
+
+-- Event hook for packet sending
+script:onPacketSend(function(packet)
+    return "DELAY"
+end)
+
+-- Update tick hook
+script:onUpdate(function(packets)
+    for _, packet in ipairs(packets) do
+        if packet:hasAged(1000) then
+            script:release(packet)
+        end
+    end
+end)`
+            },
+            {
+                id: 'aimassist',
+                name: 'AimAssist.lua',
+                description: 'Smoothly guides crosshairs towards target hitboxes.',
+                category: 'Combat',
+                enabled: false,
+                keybind: 'V',
+                keybindMode: 'Hold',
+                settings: [
+                    { id: 'fov', type: 'IntSetting', name: 'FOV Limit', description: 'Maximum angle in degrees to acquire targets', value: 35, min: 1, max: 180 },
+                    { id: 'smooth', type: 'IntSetting', name: 'Smoothing', description: 'Higher values reduce snapping speed', value: 8, min: 1, max: 30 },
+                    { id: 'aimkey', type: 'ChoiceSetting', name: 'Aim Key', description: 'Target binding key', value: 0, options: ['LBUTTON', 'RBUTTON', 'SHIFT'] }
+                ],
+                code: `-- krasnostav_aimassist.lua
+local script = {
+    name = "AimAssist",
+    description = "Smoothly guides crosshairs towards target hitboxes."
+}
+
+local fov = script:registerSetting("IntSetting", "FOV Limit", "Maximum angle to acquire targets", 35, 1, 180)
+local smooth = script:registerSetting("IntSetting", "Smoothing", "Higher values reduce snapping speed", 8, 1, 30)
+local key = script:registerSetting("ChoiceSetting", "Aim Key", "Target binding key", 0, {"LBUTTON", "RBUTTON", "SHIFT"})
+
+script:onUpdate(function()
+    -- Smooth guidance simulation
+end)`
+            }
+        ];
+
+        // Cloud Config Store Data
+        const cloudConfigs = [
+            { id: 1, name: "Premium AimAssist", creator: "shoffli", rating: 5.0, reviews: 14, tags: ["Legit", "Combat"], installed: true, accent: "#3b82f6" },
+            { id: 2, name: "Breeze Legit Speed", creator: "wallhacks", rating: 4.8, reviews: 32, tags: ["Movement", "Legit"], installed: false, accent: "#8b5cf6" },
+            { id: 3, name: "Advanced Packet Spoofer", creator: "bhop4real", rating: 4.9, reviews: 8, tags: ["Packet", "Rage"], installed: false, accent: "#ef4444" },
+            { id: 4, name: "Hypixel SafeScaffold", creator: "krasnostav_dev", rating: 5.0, reviews: 24, tags: ["World", "Safe"], installed: true, accent: "#10b981" }
+        ];
+
+        // Theme Custom Color Presets
+        const presets = [
+            { id: 'emerald', name: 'Emerald', color: '#10B981' },
+            { id: 'aqua', name: 'Neon Blue', color: '#3b82f6' },
+            { id: 'amethyst', name: 'Amethyst', color: '#8B5CF6' },
+            { id: 'ruby', name: 'Ruby', color: '#EF4444' },
+            { id: 'gold', name: 'Gold', color: '#F59E0B' },
+            { id: 'sakura', name: 'Sakura', color: '#EC4899' }
+        ];
+
+        function Dashboard() {
+            const [activeTab, setActiveTab] = useState('local'); // cloud, local, themes, settings
+            const [selectedScriptId, setSelectedScriptId] = useState('pingspoof');
+            const [scripts, setScripts] = useState(initialScripts);
+            const [uploadedScripts, setUploadedScripts] = useState([]);
+            const [activePreset, setActivePreset] = useState('aqua');
+            const [accentColor, setAccentColor] = useState('#3b82f6');
+            const [bgOpacity, setBgOpacity] = useState(0.92);
+            const [guiScale, setGuiScale] = useState(1.0);
+            const [selectedProfile, setSelectedProfile] = useState('Default');
+            const [profiles, setProfiles] = useState(['Default', 'Legit Play', 'HvH Rage', 'Custom-1']);
+            const [newProfileInput, setNewProfileInput] = useState('');
+            const [fpsLimit, setFpsLimit] = useState(120);
+
+            // Notification System
+            const [notifications, setNotifications] = useState([]);
+            const triggerNotification = (type, title, desc) => {
+                const id = Date.now();
+                setNotifications(prev => [...prev, { id, type, title, desc }]);
+                setTimeout(() => {
+                    setNotifications(prev => prev.filter(n => n.id !== id));
+                }, 4000);
+            };
+
+            // Review Modal
+            const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
+            const [selectedCloudConfig, setSelectedCloudConfig] = useState(null);
+
+            // Packet Stream Simulation (Live preview for script engine activity)
+            const [packetLogs, setPacketLogs] = useState([]);
+            const [isSimulating, setIsSimulating] = useState(true);
+
+            useEffect(() => {
+                if (!isSimulating) return;
+                const activeScript = scripts.find(s => s.id === selectedScriptId);
+                const interval = setInterval(() => {
+                    if (activeScript && activeScript.enabled) {
+                        const random = Math.random();
+                        let logEntry = '';
+                        if (activeScript.id === 'pingspoof') {
+                            const delaySetting = activeScript.settings.find(s => s.id === 'delay')?.value || 500;
+                            logEntry = `[${new Date().toLocaleTimeString()}] Intercepted Outbound Packet: KeepAlive (Latency Buffering: ${delaySetting}ms)`;
+                        } else if (activeScript.id === 'aimassist') {
+                            const fovVal = activeScript.settings.find(s => s.id === 'fov')?.value || 35;
+                            logEntry = `[${new Date().toLocaleTimeString()}] Target acquired within FOV Limit (${fovVal}°). Tracking smooth mouse offset.`;
+                        } else {
+                            logEntry = `[${new Date().toLocaleTimeString()}] Script update loop ticking smoothly...`;
+                        }
+                        setPacketLogs(prev => [logEntry, ...prev.slice(0, 19)]);
+                    }
+                }, 1800);
+                return () => clearInterval(interval);
+            }, [selectedScriptId, scripts, isSimulating]);
+
+            // Handling Lua upload & parser simulation
+            const fileInputRef = useRef(null);
+            const handleLuaDrop = (e) => {
+                e.preventDefault();
+                const file = e.dataTransfer.files[0];
+                if (file) {
+                    processLuaFile(file);
+                }
+            };
+
+            const processLuaFile = (file) => {
+                if (!file.name.endsWith('.lua')) {
+                    triggerNotification('danger', 'Invalid Format', 'Only .lua files are accepted.');
+                    return;
+                }
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const content = e.target.result;
+                    parseAndRegisterLua(file.name, content);
+                };
+                reader.readAsText(file);
+            };
+
+            const parseAndRegisterLua = (filename, content) => {
+                // Highly robust simulated Lua Regex parser in JS!
+                const nameMatch = content.match(/name\s*=\s*"([^"]+)"/) || content.match(/name\s*=\s*'([^']+)'/);
+                const descMatch = content.match(/description\s*=\s*"([^"]+)"/) || content.match(/description\s*=\s*'([^']+)'/);
+
+                const scriptName = nameMatch ? nameMatch[1] : filename.replace('.lua', '');
+                const scriptDesc = descMatch ? descMatch[1] : 'Custom script loaded successfully.';
+
+                // Extract any setting registration lines
+                // local delay = script:registerSetting("IntSetting", "Delay", "description", 500, 0, 5000)
+                const settingLines = content.split('\n').filter(line => line.includes('registerSetting'));
+                const settings = settingLines.map((line, idx) => {
+                    const parts = line.match(/registerSetting\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*([\d\.\w]+)\s*,\s*([\d\.\w]+)\s*,\s*([\d\.\w]+)\s*\)/);
+                    if (parts) {
+                        return {
+                            id: `stg_${idx}`,
+                            type: parts[1],
+                            name: parts[2],
+                            description: parts[3],
+                            value: parseFloat(parts[4]) || 100,
+                            min: parseFloat(parts[5]) || 0,
+                            max: parseFloat(parts[6]) || 1000
+                        };
+                    }
+                    return null;
+                }).filter(Boolean);
+
+                const newScriptId = filename.toLowerCase().replace('.lua', '') + '_' + Date.now();
+                const newScriptObj = {
+                    id: newScriptId,
+                    name: filename,
+                    description: scriptDesc,
+                    category: 'Custom',
+                    enabled: true,
+                    keybind: 'NONE',
+                    keybindMode: 'Toggle',
+                    settings: settings.length > 0 ? settings : [
+                        { id: 'custom_rate', type: 'IntSetting', name: 'Scan Rate', description: 'Frequency threshold in Hertz', value: 100, min: 10, max: 1000 }
+                    ],
+                    code: content
+                };
+
+                setScripts(prev => [...prev, newScriptObj]);
+                setSelectedScriptId(newScriptId);
+                triggerNotification('success', 'Script Registered', `Dynamically loaded custom script: ${filename}`);
+            };
+
+            // Custom Script settings handler
+            const updateSettingVal = (scriptId, settingId, newVal) => {
+                setScripts(prev => prev.map(s => {
+                    if (s.id === scriptId) {
+                        return {
+                            ...s,
+                            settings: s.settings.map(stg => stg.id === settingId ? { ...stg, value: newVal } : stg)
+                        };
+                    }
+                    return s;
+                }));
+            };
+
+            const toggleScriptState = (scriptId) => {
+                setScripts(prev => prev.map(s => {
+                    if (s.id === scriptId) {
+                        const nextState = !s.enabled;
+                        triggerNotification(nextState ? 'info' : 'warning', nextState ? 'Script Activated' : 'Script Deactivated', `${s.name} status updated.`);
+                        return { ...s, enabled: nextState };
+                    }
+                    return s;
+                }));
+            };
+
+            const updateScriptKeybind = (scriptId, key) => {
+                setScripts(prev => prev.map(s => {
+                    if (s.id === scriptId) {
+                        return { ...s, keybind: key };
+                    }
+                    return s;
+                }));
+                triggerNotification('info', 'Keybind Updated', `Set activation bind for script.`);
+            };
+
+            const handlePresetSelect = (preset) => {
+                setActivePreset(preset.id);
+                setAccentColor(preset.color);
+                triggerNotification('info', 'Theme Applied', `Switched visual theme to ${preset.name}`);
+            };
+
+            const activeScript = scripts.find(s => s.id === selectedScriptId);
+
+            return (
+                <div className="flex h-screen w-screen justify-center items-center p-4 relative" style={{ backgroundColor: 'rgba(15,15,17,1)' }}>
+
+                    {/* Backdrop Ambient Glow (Relative to Preset) */}
+                    <div className="absolute w-[500px] h-[500px] rounded-full filter blur-[150px] pointer-events-none opacity-[0.04] transition-all duration-700"
+                         style={{ backgroundColor: accentColor, top: '20%', left: '30%' }}></div>
+
+                    {/* Master Unified Dashboard Container */}
+                    <div className="flex w-[860px] h-[560px] bg-surface rounded-radius border border-borderClr overflow-hidden shadow-[0_12px_40px_rgba(0,0,0,0.6)] relative z-10 transition-opacity duration-300"
+                         style={{ opacity: bgOpacity }}>
+
+                        {/* 1. SLEEK LEFT SIDEBAR NAVIGATION */}
+                        <div className="w-[210px] bg-[#0E0E12] flex flex-col justify-between p-4 border-r border-borderClr h-full relative">
+                            <div>
+                                {/* Header / Client Title */}
+                                <div className="flex items-center space-x-2 py-4 px-2 mb-6 cursor-default">
+                                    <span className="text-lg font-black tracking-widest text-textBright">KRASNOSTAV</span>
+                                    <span className="text-xs font-semibold px-1.5 py-0.5 rounded bg-accentDim text-accent border border-accent/20 glow-dot" style={{ color: accentColor, borderColor: accentColor + '33' }}>mc</span>
+                                </div>
+
+                                {/* Sidebar Tabs */}
+                                <nav className="space-y-1">
+                                    <button
+                                        onClick={() => setActiveTab('cloud')}
+                                        className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-radiusInner text-sm transition-all duration-200 ${activeTab === 'cloud' ? 'bg-accentDim text-textBright font-semibold' : 'text-textDim hover:bg-surfaceHover hover:text-textBright'}`}
+                                        style={activeTab === 'cloud' ? { backgroundColor: accentColor + '1E', color: '#FFF' } : {}}
+                                    >
+                                        <span className="text-base">☁</span>
+                                        <span>Cloud Store</span>
+                                    </button>
+                                    <button
+                                        onClick={() => setActiveTab('local')}
+                                        className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-radiusInner text-sm transition-all duration-200 ${activeTab === 'local' ? 'bg-accentDim text-textBright font-semibold' : 'text-textDim hover:bg-surfaceHover hover:text-textBright'}`}
+                                        style={activeTab === 'local' ? { backgroundColor: accentColor + '1E', color: '#FFF' } : {}}
+                                    >
+                                        <span className="text-base">📂</span>
+                                        <span>Local Scripts</span>
+                                    </button>
+                                    <button
+                                        onClick={() => setActiveTab('themes')}
+                                        className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-radiusInner text-sm transition-all duration-200 ${activeTab === 'themes' ? 'bg-accentDim text-textBright font-semibold' : 'text-textDim hover:bg-surfaceHover hover:text-textBright'}`}
+                                        style={activeTab === 'themes' ? { backgroundColor: accentColor + '1E', color: '#FFF' } : {}}
+                                    >
+                                        <span className="text-base">🎨</span>
+                                        <span>Custom Themes</span>
+                                    </button>
+                                    <button
+                                        onClick={() => setActiveTab('settings')}
+                                        className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-radiusInner text-sm transition-all duration-200 ${activeTab === 'settings' ? 'bg-accentDim text-textBright font-semibold' : 'text-textDim hover:bg-surfaceHover hover:text-textBright'}`}
+                                        style={activeTab === 'settings' ? { backgroundColor: accentColor + '1E', color: '#FFF' } : {}}
+                                    >
+                                        <span className="text-base">⚙</span>
+                                        <span>Client Config</span>
+                                    </button>
+                                </nav>
+                            </div>
+
+                            {/* Bottom profile / Discord / Support block */}
+                            <div className="bg-elevated border border-borderClr p-3 rounded-radiusInner flex items-center justify-between">
+                                <div className="flex items-center space-x-2.5">
+                                    <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm" style={{ backgroundColor: accentColor + '33', color: accentColor }}>K</div>
+                                    <div className="flex flex-col">
+                                        <span className="text-xs font-bold text-textBright">KrasnostavDev</span>
+                                        <span className="text-[10px] text-textDim font-medium" style={{ color: accentColor }}>Premium User</span>
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => triggerNotification('info', 'Discord Integration', 'Opening browser and launching Discord sync...')}
+                                    className="p-1 rounded hover:bg-surfaceHover text-textMuted hover:text-textBright transition"
+                                    title="Get Support / Discord"
+                                >
+                                    💬
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* 2. DYNAMIC MAIN CONTENT PANEL */}
+                        <div className="flex-1 flex flex-col p-6 overflow-hidden">
+
+                            {/* --- CLOUD TAB CONTENT --- */}
+                            {activeTab === 'cloud' && (
+                                <div className="flex-1 flex flex-col overflow-hidden">
+                                    <div className="mb-4">
+                                        <div className="flex items-center justify-between">
+                                            <h2 className="text-lg font-extrabold tracking-wide text-textBright">CLOUD CONFIG STORE</h2>
+                                            <span className="text-xs font-semibold text-accent" style={{ color: accentColor }}>⚡ Cloud-Verified Packages</span>
+                                        </div>
+                                        <p className="text-xs text-textDim mt-1">Explore, download, and sync configurations curated directly from the premium Minecraft developer ecosystem.</p>
+                                    </div>
+
+                                    {/* Configs Store List */}
+                                    <div className="flex-1 overflow-y-auto pr-1 grid grid-cols-2 gap-4">
+                                        {cloudConfigs.map(cfg => (
+                                            <div key={cfg.id} className="bg-elevated border border-borderClr rounded-radiusInner p-4 flex flex-col justify-between hover:border-textMuted transition-all duration-300">
+                                                <div>
+                                                    <div className="flex items-center justify-between mb-3">
+                                                        <div className="flex items-center space-x-2">
+                                                            <div className="w-7 h-7 rounded flex items-center justify-center font-semibold text-xs border border-borderClr" style={{ borderColor: cfg.accent + '33', color: cfg.accent, backgroundColor: cfg.accent + '11' }}>⚡</div>
+                                                            <div>
+                                                                <h4 className="text-sm font-bold text-textBright leading-none">{cfg.name}</h4>
+                                                                <span className="text-[10px] text-textMuted">by {cfg.creator}</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="flex items-center space-x-1.5 mb-3 cursor-pointer"
+                                                         onClick={() => { setSelectedCloudConfig(cfg); setIsReviewModalOpen(true); }}>
+                                                        <span className="text-yellow-400 text-xs">★</span>
+                                                        <span className="text-xs font-bold text-textBright">{cfg.rating.toFixed(1)}</span>
+                                                        <span className="text-[10px] text-accent hover:underline" style={{ color: accentColor }}>({cfg.reviews} reviews)</span>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-center justify-between mt-2">
+                                                    <div className="flex space-x-1">
+                                                        {cfg.tags.map(t => (
+                                                            <span key={t} className="text-[9px] bg-surface text-textDim px-1.5 py-0.5 rounded border border-borderClr">{t}</span>
+                                                        ))}
+                                                    </div>
+                                                    <button
+                                                        onClick={() => triggerNotification('success', 'Sync Config', `Downloaded and synchronized profile setup: ${cfg.name}`)}
+                                                        className={`text-[10px] px-3 py-1 rounded font-semibold transition ${cfg.installed ? 'bg-accent/10 border border-accent/20 text-accent' : 'bg-surface border border-borderClr text-textBright hover:bg-surfaceHover'}`}
+                                                        style={cfg.installed ? { backgroundColor: accentColor + '1A', borderColor: accentColor + '33', color: accentColor } : {}}
+                                                    >
+                                                        {cfg.installed ? '✓ Installed' : '📥 Download'}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* --- LOCAL SCRIPTS TAB CONTENT --- */}
+                            {activeTab === 'local' && (
+                                <div className="flex-1 flex flex-col overflow-hidden">
+                                    <div className="flex items-center justify-between mb-4">
+                                        <div>
+                                            <h2 className="text-lg font-extrabold tracking-wide text-textBright">LOCAL SCRIPTS MANAGER</h2>
+                                            <p className="text-xs text-textDim mt-1">Drop `.lua` files or code live to generate controls and capture game events instantaneously.</p>
+                                        </div>
+                                        <button
+                                            onClick={() => fileInputRef.current.click()}
+                                            className="text-xs px-3 py-1.5 rounded-radiusInner bg-[#1E1E26] border border-borderClr text-textBright hover:border-accent hover:text-accent transition-all duration-300"
+                                        >
+                                            ＋ Upload Script
+                                        </button>
+                                        <input
+                                            type="file"
+                                            ref={fileInputRef}
+                                            onChange={(e) => { if(e.target.files[0]) processLuaFile(e.target.files[0]) }}
+                                            accept=".lua"
+                                            className="hidden"
+                                        />
+                                    </div>
+
+                                    {/* Main Splitted Content Workspace */}
+                                    <div className="flex-1 flex overflow-hidden gap-4">
+
+                                        {/* Left Side: Script List & Lua Dropzone */}
+                                        <div className="w-[200px] flex flex-col overflow-hidden bg-elevated rounded-radiusInner border border-borderClr">
+                                            <div className="p-3 border-b border-borderClr bg-[#131317]">
+                                                <span className="text-[10px] font-bold text-textMuted uppercase tracking-wider">Loaded Lua Scripts</span>
+                                            </div>
+                                            <div className="flex-1 overflow-y-auto p-2 space-y-1">
+                                                {scripts.map(s => (
+                                                    <div
+                                                        key={s.id}
+                                                        onClick={() => setSelectedScriptId(s.id)}
+                                                        className={`flex items-center justify-between px-2.5 py-2 rounded cursor-pointer transition ${selectedScriptId === s.id ? 'bg-surface border border-borderClr' : 'hover:bg-surface/50'}`}
+                                                    >
+                                                        <span className={`text-xs truncate ${s.enabled ? 'font-semibold text-accent' : 'text-textDim'}`} style={s.enabled ? { color: accentColor } : {}}>
+                                                            {s.name}
+                                                        </span>
+                                                        <div
+                                                            onClick={(e) => { e.stopPropagation(); toggleScriptState(s.id); }}
+                                                            className={`w-6 h-3 rounded-full relative transition-colors duration-200 ${s.enabled ? 'bg-accent' : 'bg-borderClr'}`}
+                                                            style={s.enabled ? { backgroundColor: accentColor } : {}}
+                                                        >
+                                                            <div className={`w-2 h-2 rounded-full bg-white absolute top-0.5 transition-all duration-200 ${s.enabled ? 'right-0.5' : 'left-0.5'}`}></div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+
+                                            {/* File drop zone mockup */}
+                                            <div
+                                                onDragOver={(e) => e.preventDefault()}
+                                                onDrop={handleLuaDrop}
+                                                className="p-3 m-2 border border-dashed border-borderClr rounded text-center cursor-pointer hover:border-textMuted transition"
+                                                onClick={() => fileInputRef.current.click()}
+                                            >
+                                                <span className="text-[10px] text-textMuted block">Drag & Drop .lua here</span>
+                                            </div>
+                                        </div>
+
+                                        {/* Right Side: Script Settings Editor Rendering Panel */}
+                                        <div className="flex-1 flex flex-col overflow-hidden gap-4">
+                                            {activeScript ? (
+                                                <div className="flex-1 flex flex-col overflow-hidden bg-elevated rounded-radiusInner border border-borderClr p-4">
+
+                                                    {/* Detail Info Header */}
+                                                    <div className="flex items-center justify-between border-b border-borderClr/60 pb-3 mb-3">
+                                                        <div>
+                                                            <h3 className="text-sm font-bold text-textBright">{activeScript.name}</h3>
+                                                            <p className="text-[11px] text-textDim mt-0.5">{activeScript.description}</p>
+                                                        </div>
+                                                        <div className="flex items-center space-x-2">
+                                                            <span className="text-[10px] bg-surface text-textMuted border border-borderClr px-2 py-0.5 rounded-radiusInner">{activeScript.category}</span>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Keybind Picker */}
+                                                    <div className="flex items-center justify-between bg-surface/50 p-2.5 rounded-radiusInner border border-borderClr/40 mb-3">
+                                                        <span className="text-xs text-textDim">Activation Keybind</span>
+                                                        <div className="flex items-center space-x-2">
+                                                            <input
+                                                                type="text"
+                                                                maxLength="1"
+                                                                value={activeScript.keybind}
+                                                                onChange={(e) => updateScriptKeybind(activeScript.id, e.target.value.toUpperCase())}
+                                                                className="w-12 h-6 bg-surface border border-borderClr rounded text-center text-xs font-bold text-textBright outline-none focus:border-accent"
+                                                                style={{ focusBorderColor: accentColor }}
+                                                            />
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Dynamic Setting Fields */}
+                                                    <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+                                                        {activeScript.settings.map(stg => (
+                                                            <div key={stg.id} className="space-y-1">
+                                                                {stg.type === 'IntSetting' && (
+                                                                    <div>
+                                                                        <div className="flex items-center justify-between text-xs mb-1">
+                                                                            <span className="font-semibold text-textBright">{stg.name}</span>
+                                                                            <span className="font-bold text-accent" style={{ color: accentColor }}>{stg.value} ms</span>
+                                                                        </div>
+                                                                        <div className="flex items-center space-x-3">
+                                                                            <input
+                                                                                type="range"
+                                                                                min={stg.min}
+                                                                                max={stg.max}
+                                                                                value={stg.value}
+                                                                                onChange={(e) => updateSettingVal(activeScript.id, stg.id, parseInt(e.target.value))}
+                                                                                className="flex-1 accent-accent cursor-pointer"
+                                                                                style={{ accentColor: accentColor }}
+                                                                            />
+                                                                            <span className="text-[10px] text-textMuted w-8 text-right">{stg.max}</span>
+                                                                        </div>
+                                                                        <span className="text-[10px] text-textMuted block mt-0.5">{stg.description}</span>
+                                                                    </div>
+                                                                )}
+                                                                {stg.type === 'ChoiceSetting' && (
+                                                                    <div>
+                                                                        <span className="text-xs font-semibold text-textBright block mb-1">{stg.name}</span>
+                                                                        <select
+                                                                            value={stg.value}
+                                                                            onChange={(e) => updateSettingVal(activeScript.id, stg.id, parseInt(e.target.value))}
+                                                                            className="w-full bg-surface border border-borderClr text-xs rounded-radiusInner p-2 text-textBright outline-none focus:border-accent"
+                                                                            style={{ focusBorderColor: accentColor }}
+                                                                        >
+                                                                            {stg.options.map((opt, idx) => (
+                                                                                <option key={opt} value={idx}>{opt}</option>
+                                                                            ))}
+                                                                        </select>
+                                                                        <span className="text-[10px] text-textMuted block mt-1">{stg.description}</span>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+
+                                                </div>
+                                            ) : (
+                                                <div className="flex-1 flex justify-center items-center bg-elevated rounded-radiusInner border border-borderClr text-textMuted text-xs">
+                                                    Select a script file from the sidebar to inspect controls.
+                                                </div>
+                                            )}
+
+                                            {/* Live Lua Script Interception Simulator Console */}
+                                            <div className="h-[120px] bg-base rounded-radiusInner border border-borderClr p-3 flex flex-col overflow-hidden font-mono text-[10px]">
+                                                <div className="flex items-center justify-between pb-1 border-b border-borderClr/40 text-textMuted mb-2">
+                                                    <span>SCRIPT SIMULATOR LOGS</span>
+                                                    <span className="flex items-center space-x-1">
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-success inline-block animate-pulse"></span>
+                                                        <span>Live Listening</span>
+                                                    </span>
+                                                </div>
+                                                <div className="flex-1 overflow-y-auto space-y-1">
+                                                    {packetLogs.length === 0 ? (
+                                                        <span className="text-textMuted italic">Waiting for event hooks to trigger...</span>
+                                                    ) : (
+                                                        packetLogs.map((log, i) => (
+                                                            <div key={i} className="text-textDim truncate">{log}</div>
+                                                        ))
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                        </div>
+
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* --- THEMES TAB CONTENT --- */}
+                            {activeTab === 'themes' && (
+                                <div className="flex-1 flex flex-col overflow-hidden">
+                                    <div className="mb-4">
+                                        <h2 className="text-lg font-extrabold tracking-wide text-textBright">THEMES & PALETTES</h2>
+                                        <p className="text-xs text-textDim mt-1">Quickly customize your entire ClickGUI experience with modern preset schemes and layout scalars.</p>
+                                    </div>
+
+                                    {/* Presets Grid */}
+                                    <div className="grid grid-cols-3 gap-3 mb-6">
+                                        {presets.map(p => {
+                                            const isActive = activePreset === p.id;
+                                            return (
+                                                <div
+                                                    key={p.id}
+                                                    onClick={() => handlePresetSelect(p)}
+                                                    className={`bg-elevated border rounded-radiusInner p-4 flex items-center space-x-3 cursor-pointer transition ${isActive ? 'border-accent' : 'border-borderClr'}`}
+                                                    style={isActive ? { borderColor: accentColor } : {}}
+                                                >
+                                                    <div className="w-4 h-4 rounded-full relative" style={{ backgroundColor: p.color }}>
+                                                        {isActive && (
+                                                            <div className="w-6 h-6 rounded-full border absolute -top-1 -left-1" style={{ borderColor: p.color }}></div>
+                                                        )}
+                                                    </div>
+                                                    <span className="text-xs font-bold text-textBright">{p.name}</span>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+
+                                    <div className="border-t border-borderClr/60 pt-4 space-y-4">
+                                        <h4 className="text-xs font-bold text-accent uppercase tracking-wider" style={{ color: accentColor }}>Advanced Scaling</h4>
+
+                                        {/* Background Opacity */}
+                                        <div className="space-y-1">
+                                            <div className="flex items-center justify-between text-xs">
+                                                <span className="text-textDim">Background Opacity</span>
+                                                <span className="font-bold text-textBright">{Math.round(bgOpacity * 100)}%</span>
+                                            </div>
+                                            <input
+                                                type="range"
+                                                min="40"
+                                                max="100"
+                                                value={bgOpacity * 100}
+                                                onChange={(e) => setBgOpacity(parseInt(e.target.value) / 100)}
+                                                className="w-full cursor-pointer"
+                                                style={{ accentColor: accentColor }}
+                                            />
+                                        </div>
+
+                                        {/* GUI Scale */}
+                                        <div className="space-y-1">
+                                            <div className="flex items-center justify-between text-xs">
+                                                <span className="text-textDim">GUI Scale Factor</span>
+                                                <span className="font-bold text-textBright">{guiScale.toFixed(2)}x</span>
+                                            </div>
+                                            <input
+                                                type="range"
+                                                min="70"
+                                                max="150"
+                                                value={guiScale * 100}
+                                                onChange={(e) => setGuiScale(parseInt(e.target.value) / 100)}
+                                                className="w-full cursor-pointer"
+                                                style={{ accentColor: accentColor }}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* --- SETTINGS TAB CONTENT --- */}
+                            {activeTab === 'settings' && (
+                                <div className="flex-1 flex flex-col overflow-hidden">
+                                    <div className="mb-4">
+                                        <h2 className="text-lg font-extrabold tracking-wide text-textBright">CLIENT CONFIGURATION</h2>
+                                        <p className="text-xs text-textDim mt-1">Manage active profiles, configure FPS performance limiting caps, and check for code updates.</p>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-6 flex-1 overflow-y-auto">
+                                        {/* Left Side: Profiles */}
+                                        <div className="space-y-4">
+                                            <div>
+                                                <h4 className="text-xs font-bold text-accent uppercase tracking-wider mb-2" style={{ color: accentColor }}>Profile Configs</h4>
+                                                <select
+                                                    value={selectedProfile}
+                                                    onChange={(e) => { setSelectedProfile(e.target.value); triggerNotification('info', 'Profile Changed', `Successfully loaded setup: ${e.target.value}`) }}
+                                                    className="w-full bg-elevated border border-borderClr text-xs rounded-radiusInner p-2 text-textBright outline-none focus:border-accent"
+                                                    style={{ focusBorderColor: accentColor }}
+                                                >
+                                                    {profiles.map(p => <option key={p} value={p}>{p}</option>)}
+                                                </select>
+                                            </div>
+
+                                            <div className="space-y-2">
+                                                <span className="text-xs text-textDim block">Create New Profile</span>
+                                                <div className="flex space-x-2">
+                                                    <input
+                                                        type="text"
+                                                        value={newProfileInput}
+                                                        onChange={(e) => setNewProfileInput(e.target.value)}
+                                                        placeholder="Profile name..."
+                                                        className="flex-1 bg-elevated border border-borderClr text-xs rounded-radiusInner px-3 py-1.5 text-textBright outline-none focus:border-accent"
+                                                        style={{ focusBorderColor: accentColor }}
+                                                    />
+                                                    <button
+                                                        onClick={() => {
+                                                            if(newProfileInput.trim()){
+                                                                setProfiles([...profiles, newProfileInput.trim()]);
+                                                                triggerNotification('success', 'Profile Saved', `Profile ${newProfileInput} initialized.`);
+                                                                setNewProfileInput('');
+                                                            }
+                                                        }}
+                                                        className="text-xs bg-[#1E1E26] border border-borderClr px-3.5 rounded-radiusInner hover:border-accent hover:text-accent transition"
+                                                    >
+                                                        ＋ Add
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            <div className="border-t border-borderClr/60 pt-4">
+                                                <span className="text-xs font-bold text-danger uppercase tracking-wider block mb-2">Panic Zone</span>
+                                                <button
+                                                    onClick={() => triggerNotification('danger', 'Panic Active', 'Self-destructing injected client safely to clean JVM bytecode...')}
+                                                    className="w-full bg-danger/20 border border-danger/40 text-danger hover:bg-danger/30 font-bold py-2 rounded-radiusInner text-xs transition"
+                                                >
+                                                    ⚡ Self-Destruct / Panic
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {/* Right Side: Performance & Updates */}
+                                        <div className="space-y-4">
+                                            <div>
+                                                <h4 className="text-xs font-bold text-accent uppercase tracking-wider mb-2" style={{ color: accentColor }}>Performance Caps</h4>
+                                                <div className="space-y-1">
+                                                    <div className="flex items-center justify-between text-xs">
+                                                        <span className="text-textDim">FPS Limit Cap</span>
+                                                        <span className="font-bold text-textBright">{fpsLimit} FPS</span>
+                                                    </div>
+                                                    <input
+                                                        type="range"
+                                                        min="30"
+                                                        max="240"
+                                                        value={fpsLimit}
+                                                        onChange={(e) => setFpsLimit(parseInt(e.target.value))}
+                                                        className="w-full cursor-pointer"
+                                                        style={{ accentColor: accentColor }}
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            <div className="border-t border-borderClr/60 pt-4">
+                                                <h4 className="text-xs font-bold text-accent uppercase tracking-wider mb-2" style={{ color: accentColor }}>Live Update Engine</h4>
+                                                <div className="bg-elevated border border-borderClr rounded-radiusInner p-3 space-y-2">
+                                                    <div className="flex justify-between text-xs">
+                                                        <span className="text-textMuted">Active Build:</span>
+                                                        <span className="text-textBright font-semibold">v1.1.0 (Premium)</span>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => triggerNotification('info', 'Update Engine', 'Your Minecraft premium client build is up to date!')}
+                                                        className="w-full bg-surface border border-borderClr py-1.5 rounded text-xs text-textBright hover:border-accent hover:text-accent transition"
+                                                    >
+                                                        🔎 Search Updates
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                        </div>
+
+                    </div>
+
+                    {/* --- REVIEWS MODAL OVERLAY --- */}
+                    {isReviewModalOpen && selectedCloudConfig && (
+                        <div className="absolute inset-0 bg-black/70 flex justify-center items-center z-50">
+                            <div className="bg-surface border border-borderClr rounded-radius w-[420px] p-5 shadow-2xl">
+                                <div className="flex items-center justify-between border-b border-borderClr pb-3 mb-4">
+                                    <h3 className="text-sm font-bold text-textBright">{selectedCloudConfig.name} Reviews</h3>
+                                    <button
+                                        onClick={() => setIsReviewModalOpen(false)}
+                                        className="text-textMuted hover:text-textBright text-xs"
+                                    >
+                                        ✕ Close
+                                    </button>
+                                </div>
+
+                                <div className="space-y-4 max-h-[250px] overflow-y-auto pr-1">
+                                    {/* Mock Reviews List */}
+                                    <div className="border-b border-borderClr/60 pb-3">
+                                        <div className="flex items-center justify-between text-xs mb-1">
+                                            <div className="flex items-center space-x-2">
+                                                <div className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-500 font-bold text-[9px] flex items-center justify-center">W</div>
+                                                <span className="font-semibold text-textBright">wallhacks</span>
+                                            </div>
+                                            <span className="text-yellow-400 text-[10px]">★★★★★</span>
+                                        </div>
+                                        <p className="text-[11px] text-textDim">Unbelievably smooth and stealthy performance, zero flags on anti-cheats!</p>
+                                        <span className="text-[9px] text-textMuted block mt-1">2 hours ago</span>
+                                    </div>
+
+                                    <div className="border-b border-borderClr/60 pb-3">
+                                        <div className="flex items-center justify-between text-xs mb-1">
+                                            <div className="flex items-center space-x-2">
+                                                <div className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-500 font-bold text-[9px] flex items-center justify-center">B</div>
+                                                <span className="font-semibold text-textBright">bhop4real</span>
+                                            </div>
+                                            <span className="text-yellow-400 text-[10px]">★★★★★</span>
+                                        </div>
+                                        <p className="text-[11px] text-textDim">Absolutely critical setup, saved my gameplay experience completely on competitive servers.</p>
+                                        <span className="text-[9px] text-textMuted block mt-1">1 day ago</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* --- SYSTEM NOTIFICATIONS TOAST WRAPPER --- */}
+                    <div className="absolute bottom-4 right-4 z-50 flex flex-col space-y-2 max-w-xs">
+                        {notifications.map(n => (
+                            <div key={n.id} className="bg-elevated border border-borderClr rounded-radiusInner p-3 flex flex-col shadow-lg animate-slide-in">
+                                <div className="flex items-center space-x-2">
+                                    <span className="text-xs">
+                                        {n.type === 'success' ? '🟢' : n.type === 'warning' ? '🟡' : n.type === 'danger' ? '🔴' : '🔵'}
+                                    </span>
+                                    <span className="text-xs font-bold text-textBright">{n.title}</span>
+                                </div>
+                                <span className="text-[10px] text-textDim mt-1 pl-5">{n.desc}</span>
+                            </div>
+                        ))}
+                    </div>
+
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<Dashboard />);
+    </script>
+</body>
+</html>
