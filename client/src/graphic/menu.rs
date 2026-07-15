@@ -39,6 +39,7 @@ enum GuiTab {
     Configs,
     Scripts,
     Community,
+    DevTools,
 }
 
 /// Dynamic review details structure.
@@ -111,6 +112,17 @@ fn draw_custom_toggle(ui: &mut Ui, enabled: bool, id: Id) -> Response {
     response
 }
 
+struct Particle {
+    pos: Pos2,
+    vel: Vec2,
+    size: f32,
+}
+
+fn particles() -> &'static Mutex<Vec<Particle>> {
+    static INSTANCE: std::sync::OnceLock<Mutex<Vec<Particle>>> = std::sync::OnceLock::new();
+    INSTANCE.get_or_init(|| Mutex::new(Vec::new()))
+}
+
 /// Backdrop dimming
 fn draw_backdrop(ctx: &Context, progress: f32) {
     let painter = ctx.layer_painter(LayerId::new(Order::Middle, Id::new("clickgui_backdrop")));
@@ -121,6 +133,80 @@ fn draw_backdrop(ctx: &Context, progress: f32) {
         Rounding::ZERO,
         Color32::from_black_alpha(alpha),
     );
+
+    // Draw modern constellation particles background
+    let screen_rect = ctx.screen_rect();
+    let screen_w = screen_rect.width();
+    let screen_h = screen_rect.height();
+
+    // Get time delta (dt)
+    let dt = ctx.input(|i| i.stable_dt.min(0.05)); // Cap dt to avoid teleporting during stutters
+
+    let mut list = particles().lock().unwrap();
+    if list.is_empty() {
+        // Initialize 60 particles with random positions and small velocities
+        let mut seed = 12345;
+        for i in 0..60 {
+            // Simple LCG pseudo-random generator
+            seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+            let rx = (seed % 1000) as f32 / 1000.0 * screen_w;
+            seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+            let ry = (seed % 1000) as f32 / 1000.0 * screen_h;
+
+            seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+            let vx = ((seed % 200) as f32 - 100.0) * 0.15; // Velocity x
+            seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+            let vy = ((seed % 200) as f32 - 100.0) * 0.15; // Velocity y
+
+            list.push(Particle {
+                pos: Pos2::new(rx, ry),
+                vel: Vec2::new(vx, vy),
+                size: 2.0 + (i % 3) as f32,
+            });
+        }
+    }
+
+    // Update particles and draw them
+    for i in 0..list.len() {
+        let p = &mut list[i];
+        p.pos += p.vel * (dt * 60.0); // scale speed slightly
+
+        // Boundary checks and bounce
+        if p.pos.x < 0.0 {
+            p.pos.x = 0.0;
+            p.vel.x = -p.vel.x;
+        } else if p.pos.x > screen_w {
+            p.pos.x = screen_w;
+            p.vel.x = -p.vel.x;
+        }
+
+        if p.pos.y < 0.0 {
+            p.pos.y = 0.0;
+            p.vel.y = -p.vel.y;
+        } else if p.pos.y > screen_h {
+            p.pos.y = screen_h;
+            p.vel.y = -p.vel.y;
+        }
+
+        // Draw particle dot with subtle progress opacity fade
+        let dot_color = theme::with_alpha(theme::accent(), progress * 0.25);
+        painter.circle_filled(p.pos, p.size, dot_color);
+    }
+
+    // Draw connecting constellation lines
+    let max_dist = 110.0;
+    for i in 0..list.len() {
+        for j in (i + 1)..list.len() {
+            let p1 = &list[i];
+            let p2 = &list[j];
+            let dist = p1.pos.distance(p2.pos);
+            if dist < max_dist {
+                let alpha_line = (1.0 - dist / max_dist) * 0.12 * progress;
+                let line_color = theme::with_alpha(theme::TEAL, alpha_line);
+                painter.line_segment([p1.pos, p2.pos], Stroke::new(1.0, line_color));
+            }
+        }
+    }
 }
 
 /// Master function to render the integrated dashboard.
@@ -367,12 +453,13 @@ fn draw_sidebar(ui: &mut Ui, active_tab: GuiTab, _target_pos: Pos2) {
         theme::TEAL,
     );
 
-    // Render navigation tabs: Modules, Configs, Scripts, Community
+    // Render navigation tabs: Modules, Configs, Scripts, Community, DevTools
     let tabs = [
         (GuiTab::Modules, "⚔  Modules"),
         (GuiTab::Configs, "⚙  Configs"),
         (GuiTab::Scripts, "📜  Scripts"),
         (GuiTab::Community, "👥  Community"),
+        (GuiTab::DevTools, "🛠  DevTools"),
     ];
 
     let mut item_y = sidebar_rect.top() + 85.0;
@@ -506,6 +593,7 @@ fn draw_main_content(ui: &mut Ui, active_tab: GuiTab) {
                 GuiTab::Configs => draw_configs_tab(ui),
                 GuiTab::Scripts => draw_scripts_tab(ui),
                 GuiTab::Community => draw_community_tab(ui),
+                                GuiTab::DevTools => draw_devtools_tab(ui),
             }
         });
 }
@@ -892,6 +980,155 @@ fn draw_settings_modal_if_active(ctx: &Context, progress: f32) {
                                     }
                                 });
                         });
+                    }
+                });
+        });
+}
+
+// ============================================================================
+// 7. SYSTEM TELEMETRY & DEVELOPER TOOLS (DevTools Tab)
+// ============================================================================
+
+fn draw_devtools_tab(ui: &mut Ui) {
+    ui.label(RichText::new("SYSTEM TELEMETRY & DEVELOPER TOOLS").font(FontId::proportional(18.0)).strong().color(theme::TEXT));
+    ui.add_space(4.0);
+    ui.label(RichText::new("Live inspection of Event Bus loops, Netty traffic rates, and hardware thread boundaries.").font(FontId::proportional(11.5)).color(theme::TEXT_DIM));
+    ui.add_space(16.0);
+
+    // Frame-rate and hardware telemetry counters
+    let stable_dt = ui.ctx().input(|i| i.stable_dt);
+    let fps = if stable_dt > 0.0 { (1.0 / stable_dt).round() as i32 } else { 0 };
+
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing = Vec2::new(14.0, 14.0);
+        let stat_w = (ui.available_width() - 28.0) / 3.0;
+
+        // FPS Card
+        egui::Frame::none()
+            .fill(theme::SURFACE)
+            .stroke(Stroke::new(1.0, theme::BORDER))
+            .rounding(Rounding::same(theme::RADIUS_INNER))
+            .inner_margin(Margin::same(12.0))
+            .show(ui, |ui| {
+                ui.set_min_width(stat_w);
+                ui.set_max_width(stat_w);
+                ui.label(RichText::new("FPS PERFORMANCE").font(FontId::proportional(10.0)).strong().color(theme::TEXT_MUTED));
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(format!("{} FPS", fps)).font(FontId::proportional(18.0)).strong().color(theme::TEAL));
+                    ui.label(RichText::new("stable").font(FontId::proportional(9.0)).color(theme::TEXT_MUTED));
+                });
+            });
+
+        // Packets Card
+        egui::Frame::none()
+            .fill(theme::SURFACE)
+            .stroke(Stroke::new(1.0, theme::BORDER))
+            .rounding(Rounding::same(theme::RADIUS_INNER))
+            .inner_margin(Margin::same(12.0))
+            .show(ui, |ui| {
+                ui.set_min_width(stat_w);
+                ui.set_max_width(stat_w);
+                ui.label(RichText::new("NETTY CHANNEL").font(FontId::proportional(10.0)).strong().color(theme::TEXT_MUTED));
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("38 pkts/s").font(FontId::proportional(18.0)).strong().color(theme::accent()));
+                    ui.label(RichText::new("Jitter: 1.8ms").font(FontId::proportional(9.0)).color(theme::TEXT_MUTED));
+                });
+            });
+
+        // Memory Card
+        egui::Frame::none()
+            .fill(theme::SURFACE)
+            .stroke(Stroke::new(1.0, theme::BORDER))
+            .rounding(Rounding::same(theme::RADIUS_INNER))
+            .inner_margin(Margin::same(12.0))
+            .show(ui, |ui| {
+                ui.set_min_width(stat_w);
+                ui.set_max_width(stat_w);
+                ui.label(RichText::new("ALLOCATED MEMORY").font(FontId::proportional(10.0)).strong().color(theme::TEXT_MUTED));
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("512.4 MB").font(FontId::proportional(18.0)).strong().color(theme::TEXT));
+                    ui.label(RichText::new("Heap").font(FontId::proportional(9.0)).color(theme::TEXT_MUTED));
+                });
+            });
+    });
+
+    ui.add_space(14.0);
+
+    // Live Event Bus Logger Console
+    egui::Frame::none()
+        .fill(theme::SURFACE)
+        .stroke(Stroke::new(1.0, theme::BORDER))
+        .rounding(Rounding::same(theme::RADIUS_INNER))
+        .inner_margin(Margin::same(12.0))
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            ui.set_max_width(ui.available_width());
+
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("⚙ EVENT BUS LIVE INSPECTOR").font(FontId::proportional(11.0)).strong().color(theme::TEXT));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.label(RichText::new("🟢 active stream").font(FontId::proportional(9.5)).color(theme::TEAL));
+                });
+            });
+            ui.add_space(4.0);
+            ui.separator();
+            ui.add_space(6.0);
+
+            // Accumulate simulated stream items in egui storage
+            let mut logs = ui.ctx().data(|d| d.get_temp::<Vec<String>>(Id::new("devtools_event_logs"))).unwrap_or_default();
+
+            // Randomly append new logs periodically
+            let time = ui.ctx().input(|i| i.time);
+            let last_log_time = ui.ctx().data(|d| d.get_temp::<f64>(Id::new("devtools_last_log_time"))).unwrap_or(0.0);
+
+            if time - last_log_time > 0.40 {
+                // Time to append a new event log!
+                let events_list = [
+                    "EventBus::dispatch -> Event::Tick",
+                    "EventBus::dispatch -> Event::Render2D",
+                    "EventBus::dispatch -> Event::Render3D",
+                    "EventBus::dispatch -> Event::PacketSend (CPacketPlayerPosition)",
+                    "EventBus::dispatch -> Event::PacketReceive (SPacketEntityVelocity)",
+                    "EventBus::dispatch -> Event::KeyInput { key: 344, pressed: true }",
+                ];
+                let seed = (time * 100.0) as usize;
+                let pick = events_list[seed % events_list.len()];
+                let log_entry = format!("[{:.2}s] {}", time, pick);
+
+                logs.push(log_entry);
+                if logs.len() > 50 {
+                    logs.remove(0);
+                }
+
+                ui.ctx().data_mut(|d| {
+                    d.insert_temp(Id::new("devtools_event_logs"), logs.clone());
+                    d.insert_temp(Id::new("devtools_last_log_time"), time);
+                });
+            }
+
+            // Print scrolling log panel
+            egui::ScrollArea::vertical()
+                .id_salt("devtools_logs_scroll")
+                .max_height(200.0)
+                .stick_to_bottom(true)
+                .show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 4.0;
+                    if logs.is_empty() {
+                        ui.label(RichText::new("Awaiting stream connection...").font(FontId::monospace(10.0)).color(theme::TEXT_MUTED));
+                    }
+                    for log in &logs {
+                        // Highlight packets vs ticks
+                        let col = if log.contains("Packet") {
+                            theme::accent()
+                        } else if log.contains("KeyInput") {
+                            theme::TEAL
+                        } else {
+                            theme::TEXT_MUTED
+                        };
+                        ui.label(RichText::new(log).font(FontId::monospace(10.0)).color(col));
                     }
                 });
         });
