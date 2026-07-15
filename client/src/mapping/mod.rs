@@ -5,7 +5,9 @@ pub use crate::mapping::object::MappedObject;
 use dashmap::DashMap;
 use jni::objects::{GlobalRef, JClass, JMethodID, JObject, JString, JValue, JValueOwned};
 use jni::signature::{Primitive, ReturnType};
-use jni::sys::{jsize, jvalue, JNI_GetCreatedJavaVMs, JNI_OK};
+use jni::sys::{jsize, jvalue, JNI_OK};
+#[cfg(not(windows))]
+use jni::sys::JNI_GetCreatedJavaVMs;
 use jni::{JNIEnv, JavaVM};
 use log::info;
 pub use mapping_derive::MappedObject;
@@ -124,6 +126,32 @@ fn probe_unobfuscated(env: &mut JNIEnv) -> bool {
 }
 
 /// Obtains a handle to the JVM running in this process.
+#[cfg(windows)]
+fn acquire_jvm() -> anyhow::Result<JavaVM> {
+    let mut raw: *mut jni::sys::JavaVM = std::ptr::null_mut();
+    let mut count: jsize = 0;
+
+    // SAFETY: We dynamically resolve JNI_GetCreatedJavaVMs from the already-loaded
+    // jvm.dll in the process's memory space, avoiding build-time linking to jvm.lib.
+    unsafe {
+        let lib = libloading::os::windows::Library::open_already_loaded("jvm.dll")?;
+        let get_created_vms: libloading::Symbol<
+            unsafe extern "system" fn(
+                vmBuf: *mut *mut jni::sys::JavaVM,
+                bufLen: jsize,
+                nVMs: *mut jsize,
+            ) -> jni::sys::jint,
+        > = lib.get(b"JNI_GetCreatedJavaVMs")?;
+
+        if get_created_vms(&mut raw, 1, &mut count) != JNI_OK || count == 0 {
+            return Err(anyhow::anyhow!("no JVM found in this process"));
+        }
+        Ok(JavaVM::from_raw(raw)?)
+    }
+}
+
+/// Obtains a handle to the JVM running in this process.
+#[cfg(not(windows))]
 fn acquire_jvm() -> anyhow::Result<JavaVM> {
     let mut raw: *mut jni::sys::JavaVM = std::ptr::null_mut();
     let mut count: jsize = 0;

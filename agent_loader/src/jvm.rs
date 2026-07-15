@@ -3,7 +3,9 @@
 use std::thread;
 use std::time::Duration;
 
-use jni::sys::{jsize, JNI_GetCreatedJavaVMs, JNI_OK};
+use jni::sys::{jsize, JNI_OK};
+#[cfg(not(windows))]
+use jni::sys::JNI_GetCreatedJavaVMs;
 use jni::JavaVM;
 use log::info;
 
@@ -74,6 +76,32 @@ fn jvm_healthy(jvm: &JavaVM) -> bool {
 }
 
 /// Returns a handle to the JVM running in this process, if there is one.
+#[cfg(windows)]
+fn get_jvm() -> Option<JavaVM> {
+    let mut raw: *mut jni::sys::JavaVM = std::ptr::null_mut();
+    let mut count: jsize = 0;
+
+    // SAFETY: We dynamically resolve JNI_GetCreatedJavaVMs from the already-loaded
+    // jvm.dll in the process's memory space, avoiding build-time linking to jvm.lib.
+    unsafe {
+        let lib = libloading::os::windows::Library::open_already_loaded("jvm.dll").ok()?;
+        let get_created_vms: libloading::Symbol<
+            unsafe extern "system" fn(
+                vmBuf: *mut *mut jni::sys::JavaVM,
+                bufLen: jsize,
+                nVMs: *mut jsize,
+            ) -> jni::sys::jint,
+        > = lib.get(b"JNI_GetCreatedJavaVMs").ok()?;
+
+        if get_created_vms(&mut raw, 1, &mut count) != JNI_OK || count == 0 {
+            return None;
+        }
+        JavaVM::from_raw(raw).ok()
+    }
+}
+
+/// Returns a handle to the JVM running in this process, if there is one.
+#[cfg(not(windows))]
 fn get_jvm() -> Option<JavaVM> {
     let mut raw: *mut jni::sys::JavaVM = std::ptr::null_mut();
     let mut count: jsize = 0;
