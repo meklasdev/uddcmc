@@ -255,7 +255,7 @@ fn read_or_create_config() -> Config {
 }
 
 /// Writes the current state to the active profile on disk.
-pub fn save() {
+pub fn save() -> std::io::Result<()> {
     let mut config = read_or_create_config();
 
     // Sync global configurations
@@ -317,12 +317,14 @@ pub fn save() {
     let path = config_path();
     match serde_json::to_string_pretty(&config) {
         Ok(json) => {
-            if let Err(error) = atomic_write(&path, &json) {
-                log::warn!("config: could not write {}: {error}", path.display());
-            }
+            atomic_write(&path, &json)?;
         }
-        Err(error) => log::warn!("config: could not serialize: {error}"),
+        Err(error) => {
+            log::warn!("config: could not serialize: {error}");
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, error.to_string()));
+        }
     }
+    Ok(())
 }
 
 /// Loads the saved config, if any, and applies it to the registered modules.
@@ -411,29 +413,31 @@ pub fn load() {
 // --- Active Profile Manipulation API --------------------------------------
 
 /// Switches the active profile and reloads config settings
-pub fn switch_profile(name: &str) {
+pub fn switch_profile(name: &str) -> std::io::Result<()> {
     if name.is_empty() {
-        return;
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Profile name cannot be empty"));
     }
-    save(); // Save current profile before switching!
+    save()?; // Save current profile before switching!
     set_active_profile_name(name.to_string());
     load(); // Load target profile settings
-    save(); // Overwrite config with updated active profile marker
+    save()?; // Overwrite config with updated active profile marker
+    Ok(())
 }
 
 /// Creates a new profile from the current settings
-pub fn create_profile(name: &str) {
+pub fn create_profile(name: &str) -> std::io::Result<()> {
     if name.is_empty() {
-        return;
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Profile name cannot be empty"));
     }
     set_active_profile_name(name.to_string());
-    save(); // Saves current state under new name and refreshes list
+    save()?; // Saves current state under new name and refreshes list
+    Ok(())
 }
 
 /// Deletes a profile
-pub fn delete_profile(name: &str) {
+pub fn delete_profile(name: &str) -> std::io::Result<()> {
     if name == "Default" || name.is_empty() {
-        return; // Safeguard Default profile
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Cannot delete the Default profile or empty profile name"));
     }
     let mut config = read_or_create_config();
     config.profiles.retain(|p| p.name != name);
@@ -452,12 +456,18 @@ pub fn delete_profile(name: &str) {
 
     // Save changes atomically
     let path = config_path();
-    if let Ok(json) = serde_json::to_string_pretty(&config) {
-        let _ = atomic_write(&path, &json);
+    match serde_json::to_string_pretty(&config) {
+        Ok(json) => {
+            atomic_write(&path, &json)?;
+        }
+        Err(error) => {
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, error.to_string()));
+        }
     }
 
     // If we deleted the active profile, load Default settings
     if active == name {
         load();
     }
+    Ok(())
 }

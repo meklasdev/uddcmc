@@ -406,7 +406,7 @@ fn toggle_gui() {
 
     // Persist anything the user changed in the menu before it closes.
     if !open {
-        crate::config::save();
+        let _ = crate::config::save();
     }
 
     let Some(hooks) = HOOKS.get() else {
@@ -466,7 +466,7 @@ fn handle_module_keybind(key: i32) {
 
     // Persist the new enabled state.
     if changed {
-        crate::config::save();
+        let _ = crate::config::save();
     }
 }
 
