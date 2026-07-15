@@ -21,6 +21,9 @@ pub enum NotificationType {
     Info,
     Warning,
     Alert,
+    Success,
+    Progress,
+    Achievement,
 }
 
 impl NotificationType {
@@ -30,6 +33,9 @@ impl NotificationType {
             NotificationType::Info => theme::accent(),
             NotificationType::Warning => theme::WARN,
             NotificationType::Alert => theme::DANGER,
+            NotificationType::Success => Color32::from_rgb(16, 185, 129),
+            NotificationType::Progress => theme::TEAL,
+            NotificationType::Achievement => Color32::from_rgb(251, 191, 36),
         }
     }
 
@@ -39,6 +45,9 @@ impl NotificationType {
             NotificationType::Info => "i",
             NotificationType::Warning => "!",
             NotificationType::Alert => "x",
+            NotificationType::Success => "✓",
+            NotificationType::Progress => "↻",
+            NotificationType::Achievement => "★",
         }
     }
 }
@@ -139,7 +148,14 @@ fn draw_card(painter: &Painter, rect: Rect, n: &Notification, remaining: f32) {
         radius,
         Color32::from_rgba_unmultiplied(16, 17, 21, 240),
     );
-    painter.rect_stroke(rect, radius, Stroke::new(1.0_f32, theme::BORDER));
+
+    // Glowing golden border for achievements
+    let border_stroke = if n.notif_type == NotificationType::Achievement {
+        Stroke::new(1.5, Color32::from_rgb(251, 191, 36))
+    } else {
+        Stroke::new(1.0_f32, theme::BORDER)
+    };
+    painter.rect_stroke(rect, radius, border_stroke);
 
     // Accent rail down the left edge.
     let rail = Rect::from_min_size(rect.min, Vec2::new(4.0, rect.height()));
@@ -167,12 +183,20 @@ fn draw_card(painter: &Painter, rect: Rect, n: &Notification, remaining: f32) {
 
     // Title and message.
     let text_x = rect.min.x + 52.0;
+
+    // Golden title prefix for Achievements
+    let title_text = if n.notif_type == NotificationType::Achievement {
+        format!("🏆 {}", n.title)
+    } else {
+        n.title.clone()
+    };
+
     painter.text(
         Pos2::new(text_x, rect.min.y + 13.0),
         Align2::LEFT_TOP,
-        &n.title,
+        &title_text,
         FontId::proportional(14.0),
-        theme::TEXT,
+        if n.notif_type == NotificationType::Achievement { Color32::from_rgb(251, 191, 36) } else { theme::TEXT },
     );
     painter.text(
         Pos2::new(text_x, rect.min.y + 31.0),

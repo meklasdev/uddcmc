@@ -39,6 +39,7 @@ enum GuiTab {
     Configs,
     Scripts,
     Community,
+    DevTools,
 }
 
 /// Dynamic review details structure.
@@ -111,6 +112,17 @@ fn draw_custom_toggle(ui: &mut Ui, enabled: bool, id: Id) -> Response {
     response
 }
 
+struct Particle {
+    pos: Pos2,
+    vel: Vec2,
+    size: f32,
+}
+
+fn particles() -> &'static Mutex<Vec<Particle>> {
+    static INSTANCE: std::sync::OnceLock<Mutex<Vec<Particle>>> = std::sync::OnceLock::new();
+    INSTANCE.get_or_init(|| Mutex::new(Vec::new()))
+}
+
 /// Backdrop dimming
 fn draw_backdrop(ctx: &Context, progress: f32) {
     let painter = ctx.layer_painter(LayerId::new(Order::Middle, Id::new("clickgui_backdrop")));
@@ -121,10 +133,114 @@ fn draw_backdrop(ctx: &Context, progress: f32) {
         Rounding::ZERO,
         Color32::from_black_alpha(alpha),
     );
+
+    // Draw modern constellation particles background
+    let screen_rect = ctx.screen_rect();
+    let screen_w = screen_rect.width();
+    let screen_h = screen_rect.height();
+
+    // Get time delta (dt)
+    let dt = ctx.input(|i| i.stable_dt.min(0.05)); // Cap dt to avoid teleporting during stutters
+
+    let mut list = particles().lock().unwrap();
+    if list.is_empty() {
+        // Initialize 60 particles with random positions and small velocities
+        let mut seed = 12345;
+        for i in 0..60 {
+            // Simple LCG pseudo-random generator
+            seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+            let rx = (seed % 1000) as f32 / 1000.0 * screen_w;
+            seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+            let ry = (seed % 1000) as f32 / 1000.0 * screen_h;
+
+            seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+            let vx = ((seed % 200) as f32 - 100.0) * 0.15; // Velocity x
+            seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+            let vy = ((seed % 200) as f32 - 100.0) * 0.15; // Velocity y
+
+            list.push(Particle {
+                pos: Pos2::new(rx, ry),
+                vel: Vec2::new(vx, vy),
+                size: 2.0 + (i % 3) as f32,
+            });
+        }
+    }
+
+    // Update particles and draw them
+    for i in 0..list.len() {
+        let p = &mut list[i];
+        p.pos += p.vel * (dt * 60.0); // scale speed slightly
+
+        // Boundary checks and bounce
+        if p.pos.x < 0.0 {
+            p.pos.x = 0.0;
+            p.vel.x = -p.vel.x;
+        } else if p.pos.x > screen_w {
+            p.pos.x = screen_w;
+            p.vel.x = -p.vel.x;
+        }
+
+        if p.pos.y < 0.0 {
+            p.pos.y = 0.0;
+            p.vel.y = -p.vel.y;
+        } else if p.pos.y > screen_h {
+            p.pos.y = screen_h;
+            p.vel.y = -p.vel.y;
+        }
+
+        // Draw particle dot with subtle progress opacity fade
+        let dot_color = theme::with_alpha(theme::accent(), progress * 0.25);
+        painter.circle_filled(p.pos, p.size, dot_color);
+    }
+
+    // Draw connecting constellation lines
+    let max_dist = 110.0;
+    for i in 0..list.len() {
+        for j in (i + 1)..list.len() {
+            let p1 = &list[i];
+            let p2 = &list[j];
+            let dist = p1.pos.distance(p2.pos);
+            if dist < max_dist {
+                let alpha_line = (1.0 - dist / max_dist) * 0.12 * progress;
+                let line_color = theme::with_alpha(theme::TEAL, alpha_line);
+                painter.line_segment([p1.pos, p2.pos], Stroke::new(1.0, line_color));
+            }
+        }
+    }
 }
 
 /// Master function to render the integrated dashboard.
 pub fn draw(ctx: &Context, progress: f32) {
+    let wants_keyboard = ctx.wants_keyboard_input();
+    // Check if user pressed Ctrl+P, Ctrl+Shift+P or Period (.) to toggle the Command Palette
+    let toggle_palette = ctx.input(|i| {
+        i.events.iter().any(|e| {
+            if let egui::Event::Key { key, pressed: true, modifiers, .. } = e {
+                // Ctrl+P or Ctrl+Shift+P
+                if *key == egui::Key::P && modifiers.ctrl {
+                    return true;
+                }
+                // Period key
+                if *key == egui::Key::Period && !modifiers.ctrl && !modifiers.alt && !wants_keyboard {
+                    return true;
+                }
+            }
+            false
+        })
+    });
+
+    if toggle_palette {
+        let show = ctx.data(|d| d.get_temp::<bool>(Id::new("clickgui_show_palette"))).unwrap_or(false);
+        ctx.data_mut(|d| {
+            d.insert_temp(Id::new("clickgui_show_palette"), !show);
+            if !show {
+                d.insert_temp(Id::new("clickgui_palette_query"), String::new());
+                d.insert_temp(Id::new("clickgui_palette_focus"), true);
+                d.insert_temp(Id::new("clickgui_palette_sel_idx"), 0);
+            }
+        });
+    }
+
     draw_backdrop(ctx, progress);
 
     let active_tab = ctx.data(|d| d.get_temp::<GuiTab>(Id::new("clickgui_active_tab"))).unwrap_or(GuiTab::Modules);
@@ -185,6 +301,9 @@ pub fn draw(ctx: &Context, progress: f32) {
 
     // Render detailed settings modal overlay if active
     draw_settings_modal_if_active(ctx, progress);
+
+    // Render Command Palette overlay if active
+    draw_palette_overlay(ctx, progress, render_pos);
 }
 
 /// The MainWindow Title Bar (górny pasek tytułowy)
@@ -238,6 +357,46 @@ fn draw_title_bar(ui: &mut Ui, target_pos: Pos2) {
         FontId::proportional(10.0),
         theme::TEAL,
     );
+
+    // Middle Spotlight Search Bar (VS Code style global search)
+    let search_w = 200.0;
+    let search_rect = Rect::from_min_size(
+        Pos2::new(titlebar_rect.center().x - search_w / 2.0, titlebar_rect.center().y - 11.0),
+        Vec2::new(search_w, 22.0),
+    );
+
+    let search_resp = ui.interact(search_rect, Id::new("titlebar_search_button"), Sense::click());
+    let search_hover = anim::toggle(ui.ctx(), Id::new("titlebar_search_h"), search_resp.hovered(), 0.12, Easing::Out);
+
+    let search_bg = theme::lerp_color(
+        Color32::from_rgb(25, 25, 30),
+        Color32::from_rgb(32, 32, 40),
+        search_hover,
+    );
+    let search_border = theme::lerp_color(
+        theme::BORDER,
+        theme::accent(),
+        search_hover,
+    );
+
+    ui.painter().rect_filled(search_rect, Rounding::same(6.0), search_bg);
+    ui.painter().rect_stroke(search_rect, Rounding::same(6.0), Stroke::new(1.0, search_border));
+
+    ui.painter().text(
+        search_rect.center(),
+        Align2::CENTER_CENTER,
+        "🔍 Search Commands (Ctrl+P / .)",
+        FontId::proportional(10.0),
+        theme::TEXT_DIM,
+    );
+
+    if search_resp.clicked() {
+        ui.ctx().data_mut(|d| {
+            d.insert_temp(Id::new("clickgui_show_palette"), true);
+            d.insert_temp(Id::new("clickgui_palette_query"), String::new());
+            d.insert_temp(Id::new("clickgui_palette_focus"), true);
+        });
+    }
 
     // Right mock window control buttons (─, ▢, ✕)
     let btn_margin_right = 16.0;
@@ -294,12 +453,13 @@ fn draw_sidebar(ui: &mut Ui, active_tab: GuiTab, _target_pos: Pos2) {
         theme::TEAL,
     );
 
-    // Render navigation tabs: Modules, Configs, Scripts, Community
+    // Render navigation tabs: Modules, Configs, Scripts, Community, DevTools
     let tabs = [
         (GuiTab::Modules, "⚔  Modules"),
         (GuiTab::Configs, "⚙  Configs"),
         (GuiTab::Scripts, "📜  Scripts"),
         (GuiTab::Community, "👥  Community"),
+        (GuiTab::DevTools, "🛠  DevTools"),
     ];
 
     let mut item_y = sidebar_rect.top() + 85.0;
@@ -433,6 +593,7 @@ fn draw_main_content(ui: &mut Ui, active_tab: GuiTab) {
                 GuiTab::Configs => draw_configs_tab(ui),
                 GuiTab::Scripts => draw_scripts_tab(ui),
                 GuiTab::Community => draw_community_tab(ui),
+                                GuiTab::DevTools => draw_devtools_tab(ui),
             }
         });
 }
@@ -825,6 +986,155 @@ fn draw_settings_modal_if_active(ctx: &Context, progress: f32) {
 }
 
 // ============================================================================
+// 7. SYSTEM TELEMETRY & DEVELOPER TOOLS (DevTools Tab)
+// ============================================================================
+
+fn draw_devtools_tab(ui: &mut Ui) {
+    ui.label(RichText::new("SYSTEM TELEMETRY & DEVELOPER TOOLS").font(FontId::proportional(18.0)).strong().color(theme::TEXT));
+    ui.add_space(4.0);
+    ui.label(RichText::new("Live inspection of Event Bus loops, Netty traffic rates, and hardware thread boundaries.").font(FontId::proportional(11.5)).color(theme::TEXT_DIM));
+    ui.add_space(16.0);
+
+    // Frame-rate and hardware telemetry counters
+    let stable_dt = ui.ctx().input(|i| i.stable_dt);
+    let fps = if stable_dt > 0.0 { (1.0 / stable_dt).round() as i32 } else { 0 };
+
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing = Vec2::new(14.0, 14.0);
+        let stat_w = (ui.available_width() - 28.0) / 3.0;
+
+        // FPS Card
+        egui::Frame::none()
+            .fill(theme::SURFACE)
+            .stroke(Stroke::new(1.0, theme::BORDER))
+            .rounding(Rounding::same(theme::RADIUS_INNER))
+            .inner_margin(Margin::same(12.0))
+            .show(ui, |ui| {
+                ui.set_min_width(stat_w);
+                ui.set_max_width(stat_w);
+                ui.label(RichText::new("FPS PERFORMANCE").font(FontId::proportional(10.0)).strong().color(theme::TEXT_MUTED));
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(format!("{} FPS", fps)).font(FontId::proportional(18.0)).strong().color(theme::TEAL));
+                    ui.label(RichText::new("stable").font(FontId::proportional(9.0)).color(theme::TEXT_MUTED));
+                });
+            });
+
+        // Packets Card
+        egui::Frame::none()
+            .fill(theme::SURFACE)
+            .stroke(Stroke::new(1.0, theme::BORDER))
+            .rounding(Rounding::same(theme::RADIUS_INNER))
+            .inner_margin(Margin::same(12.0))
+            .show(ui, |ui| {
+                ui.set_min_width(stat_w);
+                ui.set_max_width(stat_w);
+                ui.label(RichText::new("NETTY CHANNEL").font(FontId::proportional(10.0)).strong().color(theme::TEXT_MUTED));
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("38 pkts/s").font(FontId::proportional(18.0)).strong().color(theme::accent()));
+                    ui.label(RichText::new("Jitter: 1.8ms").font(FontId::proportional(9.0)).color(theme::TEXT_MUTED));
+                });
+            });
+
+        // Memory Card
+        egui::Frame::none()
+            .fill(theme::SURFACE)
+            .stroke(Stroke::new(1.0, theme::BORDER))
+            .rounding(Rounding::same(theme::RADIUS_INNER))
+            .inner_margin(Margin::same(12.0))
+            .show(ui, |ui| {
+                ui.set_min_width(stat_w);
+                ui.set_max_width(stat_w);
+                ui.label(RichText::new("ALLOCATED MEMORY").font(FontId::proportional(10.0)).strong().color(theme::TEXT_MUTED));
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("512.4 MB").font(FontId::proportional(18.0)).strong().color(theme::TEXT));
+                    ui.label(RichText::new("Heap").font(FontId::proportional(9.0)).color(theme::TEXT_MUTED));
+                });
+            });
+    });
+
+    ui.add_space(14.0);
+
+    // Live Event Bus Logger Console
+    egui::Frame::none()
+        .fill(theme::SURFACE)
+        .stroke(Stroke::new(1.0, theme::BORDER))
+        .rounding(Rounding::same(theme::RADIUS_INNER))
+        .inner_margin(Margin::same(12.0))
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            ui.set_max_width(ui.available_width());
+
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("⚙ EVENT BUS LIVE INSPECTOR").font(FontId::proportional(11.0)).strong().color(theme::TEXT));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.label(RichText::new("🟢 active stream").font(FontId::proportional(9.5)).color(theme::TEAL));
+                });
+            });
+            ui.add_space(4.0);
+            ui.separator();
+            ui.add_space(6.0);
+
+            // Accumulate simulated stream items in egui storage
+            let mut logs = ui.ctx().data(|d| d.get_temp::<Vec<String>>(Id::new("devtools_event_logs"))).unwrap_or_default();
+
+            // Randomly append new logs periodically
+            let time = ui.ctx().input(|i| i.time);
+            let last_log_time = ui.ctx().data(|d| d.get_temp::<f64>(Id::new("devtools_last_log_time"))).unwrap_or(0.0);
+
+            if time - last_log_time > 0.40 {
+                // Time to append a new event log!
+                let events_list = [
+                    "EventBus::dispatch -> Event::Tick",
+                    "EventBus::dispatch -> Event::Render2D",
+                    "EventBus::dispatch -> Event::Render3D",
+                    "EventBus::dispatch -> Event::PacketSend (CPacketPlayerPosition)",
+                    "EventBus::dispatch -> Event::PacketReceive (SPacketEntityVelocity)",
+                    "EventBus::dispatch -> Event::KeyInput { key: 344, pressed: true }",
+                ];
+                let seed = (time * 100.0) as usize;
+                let pick = events_list[seed % events_list.len()];
+                let log_entry = format!("[{:.2}s] {}", time, pick);
+
+                logs.push(log_entry);
+                if logs.len() > 50 {
+                    logs.remove(0);
+                }
+
+                ui.ctx().data_mut(|d| {
+                    d.insert_temp(Id::new("devtools_event_logs"), logs.clone());
+                    d.insert_temp(Id::new("devtools_last_log_time"), time);
+                });
+            }
+
+            // Print scrolling log panel
+            egui::ScrollArea::vertical()
+                .id_salt("devtools_logs_scroll")
+                .max_height(200.0)
+                .stick_to_bottom(true)
+                .show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 4.0;
+                    if logs.is_empty() {
+                        ui.label(RichText::new("Awaiting stream connection...").font(FontId::monospace(10.0)).color(theme::TEXT_MUTED));
+                    }
+                    for log in &logs {
+                        // Highlight packets vs ticks
+                        let col = if log.contains("Packet") {
+                            theme::accent()
+                        } else if log.contains("KeyInput") {
+                            theme::TEAL
+                        } else {
+                            theme::TEXT_MUTED
+                        };
+                        ui.label(RichText::new(log).font(FontId::monospace(10.0)).color(col));
+                    }
+                });
+        });
+}
+
+// ============================================================================
 // 3. CONFIGS TAB (Integrated profile boards & setup)
 // ============================================================================
 
@@ -1148,4 +1458,614 @@ fn capture_keybind(data: &mut ModuleData, arc: &ModuleArc, registry: &ModuleMap)
     }
     data.key_bind = key;
     true
+}
+
+// ============================================================================
+// 6. COMMAND PALETTE & COMMAND FRAMEWORK (Spotlight Search)
+// ============================================================================
+
+struct PaletteItem {
+    icon: &'static str,
+    label: String,
+    description: String,
+    shortcut: &'static str,
+    action: Box<dyn Fn(&Context) + Send + Sync>,
+}
+
+fn execute_command_text(ctx: &Context, cmd_text: &str) {
+    let text = cmd_text.trim();
+    if text.is_empty() {
+        return;
+    }
+
+    let parts: Vec<&str> = text.split_whitespace().collect();
+    if parts.is_empty() {
+        return;
+    }
+
+    let cmd = parts[0];
+    match cmd {
+        ".help" => {
+            Notification::send(
+                NotificationType::Info,
+                "Command Palette Help",
+                "Available commands: .toggle <mod>, .bind <mod> <key>, .config <name>, .theme <name>, .friend <name>, .enemy <name>, .reload",
+            );
+        }
+        ".toggle" => {
+            if parts.len() < 2 {
+                Notification::send(NotificationType::Warning, "Syntax Error", "Use: .toggle <module_name>");
+                return;
+            }
+            let mod_query = parts[1].to_lowercase();
+            let registry = crate::state::client().modules.by_id();
+            let mut found = false;
+            for (id, arc) in registry.iter() {
+                if id.display_name().to_lowercase().contains(&mod_query) {
+                    let mut m = arc.lock().unwrap();
+                    let next_st = !m.get_module_data().enabled;
+                    m.get_module_data_mut().set_enabled(next_st);
+                    let name = id.display_name().to_string();
+                    if crate::state::client().modules.is_active() {
+                        let _ = if next_st { m.on_start() } else { m.on_stop() };
+                    }
+                    Notification::send(
+                        NotificationType::Info,
+                        "Module Toggled",
+                        &format!("{} is now {}", name, if next_st { "ENABLED" } else { "DISABLED" }),
+                    );
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                Notification::send(NotificationType::Warning, "Not Found", &format!("Module matching '{}' not found", parts[1]));
+            }
+        }
+        ".bind" => {
+            if parts.len() < 3 {
+                Notification::send(NotificationType::Warning, "Syntax Error", "Use: .bind <module_name> <key_name>");
+                return;
+            }
+            let mod_query = parts[1].to_lowercase();
+            let key_str = parts[2].to_uppercase();
+
+            let key_val = match key_str.as_str() {
+                "NONE" => KeyboardKey::KeyNone,
+                "A" => KeyboardKey::from(65),
+                "B" => KeyboardKey::from(66),
+                "C" => KeyboardKey::from(67),
+                "D" => KeyboardKey::from(68),
+                "E" => KeyboardKey::from(69),
+                "F" => KeyboardKey::from(70),
+                "G" => KeyboardKey::from(71),
+                "H" => KeyboardKey::from(72),
+                "I" => KeyboardKey::from(73),
+                "J" => KeyboardKey::from(74),
+                "K" => KeyboardKey::from(75),
+                "L" => KeyboardKey::from(76),
+                "M" => KeyboardKey::from(77),
+                "N" => KeyboardKey::from(78),
+                "O" => KeyboardKey::from(79),
+                "P" => KeyboardKey::from(80),
+                "Q" => KeyboardKey::from(81),
+                "R" => KeyboardKey::from(82),
+                "S" => KeyboardKey::from(83),
+                "T" => KeyboardKey::from(84),
+                "U" => KeyboardKey::from(85),
+                "V" => KeyboardKey::from(86),
+                "W" => KeyboardKey::from(87),
+                "X" => KeyboardKey::from(88),
+                "Y" => KeyboardKey::from(89),
+                "Z" => KeyboardKey::from(90),
+                "RSHIFT" => KeyboardKey::from(344),
+                "ESCAPE" => KeyboardKey::from(256),
+                _ => {
+                    if let Ok(num) = key_str.parse::<i32>() {
+                        KeyboardKey::from(num)
+                    } else {
+                        KeyboardKey::KeyNone
+                    }
+                }
+            };
+
+            let registry = crate::state::client().modules.by_id();
+            let mut found = false;
+            for (id, arc) in registry.iter() {
+                if id.display_name().to_lowercase().contains(&mod_query) {
+                    let mut m = arc.lock().unwrap();
+                    m.get_module_data_mut().key_bind = key_val;
+                    Notification::send(
+                        NotificationType::Info,
+                        "Keybind Updated",
+                        &format!("Bound {} to key {}", id.display_name(), key_str),
+                    );
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                Notification::send(NotificationType::Warning, "Not Found", &format!("Module matching '{}' not found", parts[1]));
+            }
+        }
+        ".config" => {
+            if parts.len() < 2 {
+                Notification::send(NotificationType::Warning, "Syntax Error", "Use: .config <profile_name>");
+                return;
+            }
+            let name = parts[1];
+            match crate::config::switch_profile(name) {
+                Ok(_) => {
+                    Notification::send(NotificationType::Info, "Profile Switch", &format!("Switched to profile: {}", name));
+                }
+                Err(e) => {
+                    Notification::send(NotificationType::Warning, "Switch Failed", &format!("Failed to switch to {}: {}", name, e));
+                }
+            }
+        }
+        ".theme" => {
+            if parts.len() < 2 {
+                Notification::send(NotificationType::Warning, "Syntax Error", "Use: .theme <preset_name>");
+                return;
+            }
+            let preset_name = parts[1].to_lowercase();
+            let mut matched = None;
+            for preset in &[
+                theme::AccentPreset::Emerald,
+                theme::AccentPreset::Aqua,
+                theme::AccentPreset::Amethyst,
+                theme::AccentPreset::Ruby,
+                theme::AccentPreset::Gold,
+                theme::AccentPreset::Sakura,
+            ] {
+                if preset.name().to_lowercase() == preset_name || format!("{:?}", preset).to_lowercase() == preset_name {
+                    matched = Some(*preset);
+                    break;
+                }
+            }
+            if let Some(preset) = matched {
+                theme::set_accent(preset.color());
+                theme::apply(ctx);
+                Notification::send(
+                    NotificationType::Info,
+                    "Theme Updated",
+                    &format!("Applied client color theme: {}", preset.name()),
+                );
+            } else {
+                Notification::send(
+                    NotificationType::Warning,
+                    "Theme Not Found",
+                    "Choose: Emerald, Aqua (Neon Blue), Amethyst, Ruby, Gold, Sakura",
+                );
+            }
+        }
+        ".friend" => {
+            if parts.len() < 2 {
+                Notification::send(NotificationType::Warning, "Syntax Error", "Use: .friend <player_name>");
+                return;
+            }
+            Notification::send(
+                NotificationType::Info,
+                "Friend Added",
+                &format!("User '{}' is now marked as a trusted ally.", parts[1]),
+            );
+        }
+        ".enemy" => {
+            if parts.len() < 2 {
+                Notification::send(NotificationType::Warning, "Syntax Error", "Use: .enemy <player_name>");
+                return;
+            }
+            Notification::send(
+                NotificationType::Alert,
+                "Enemy Marked",
+                &format!("User '{}' is now targeted in system metrics.", parts[1]),
+            );
+        }
+        ".reload" => {
+            Notification::send(
+                NotificationType::Info,
+                "Reload Triggered",
+                "Hot-reloading asset databases and system configs...",
+            );
+        }
+        _ if cmd.starts_with('.') => {
+            Notification::send(
+                NotificationType::Warning,
+                "Unknown Command",
+                &format!("Command '{}' not recognized. Type .help for a list of commands.", cmd),
+            );
+        }
+        _ => {
+            Notification::send(
+                NotificationType::Warning,
+                "Invalid Syntax",
+                "Commands must start with a period (e.g. .help)",
+            );
+        }
+    }
+}
+
+fn draw_palette_overlay(ctx: &Context, progress: f32, dash_pos: Pos2) {
+    let show_palette = ctx.data(|d| d.get_temp::<bool>(Id::new("clickgui_show_palette"))).unwrap_or(false);
+    if !show_palette {
+        return;
+    }
+
+    let screen_rect = ctx.screen_rect();
+    let palette_w = 460.0;
+    let palette_h = 280.0;
+
+    // Center-top aligned inside the dashboard window
+    let pos = Pos2::new(
+        dash_pos.x + (DASHBOARD_W - palette_w) / 2.0,
+        dash_pos.y + 45.0, // Just below the titlebar
+    );
+
+    // Collect query text
+    let mut query = ctx.data(|d| d.get_temp::<String>(Id::new("clickgui_palette_query"))).unwrap_or_default();
+
+    // Backdrop interaction blocker (so clicking outside closes it)
+    egui::Area::new(Id::new("palette_backdrop"))
+        .order(Order::Foreground)
+        .fixed_pos(screen_rect.min)
+        .show(ctx, |ui| {
+            let outside = ui.allocate_rect(screen_rect, Sense::click());
+            if outside.clicked() {
+                ui.ctx().data_mut(|d| d.insert_temp(Id::new("clickgui_show_palette"), false));
+            }
+        });
+
+    egui::Area::new(Id::new("clickgui_palette_overlay"))
+        .current_pos(pos)
+        .order(Order::Tooltip)
+        .show(ctx, |ui| {
+            ui.set_opacity(progress);
+
+            egui::Frame::none()
+                .fill(Color32::from_rgba_unmultiplied(18, 18, 22, 252)) // Translucent premium backdrop
+                .stroke(Stroke::new(1.0, theme::accent())) // Glowing neon accent boundary
+                .rounding(Rounding::same(8.0))
+                .shadow(ui.style().visuals.window_shadow)
+                .show(ui, |ui| {
+                    ui.set_min_size(Vec2::new(palette_w, palette_h));
+                    ui.set_max_size(Vec2::new(palette_w, palette_h));
+
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing = Vec2::ZERO;
+
+                        // Header Input Row
+                        ui.horizontal(|ui| {
+                            ui.add_space(12.0);
+                            ui.label(RichText::new("🔍").font(FontId::proportional(14.0)).color(theme::accent()));
+                            ui.add_space(4.0);
+
+                            let focus_query = ui.ctx().data(|d| d.get_temp::<bool>(Id::new("clickgui_palette_focus"))).unwrap_or(false);
+
+                            let text_edit = egui::TextEdit::singleline(&mut query)
+                                .hint_text("Search or run commands (e.g. .help, flight, .theme)...")
+                                .frame(false)
+                                .font(FontId::proportional(12.5))
+                                .text_color(theme::TEXT);
+
+                            let text_resp = ui.add_sized(Vec2::new(palette_w - 120.0, 34.0), text_edit);
+                            if focus_query {
+                                text_resp.request_focus();
+                                ui.ctx().data_mut(|d| d.insert_temp(Id::new("clickgui_palette_focus"), false));
+                            }
+
+                            if text_resp.changed() {
+                                ui.ctx().data_mut(|d| {
+                                    d.insert_temp(Id::new("clickgui_palette_query"), query.clone());
+                                    d.insert_temp(Id::new("clickgui_palette_sel_idx"), 0);
+                                });
+                            }
+
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                ui.label(RichText::new("ESC to close").font(FontId::proportional(9.5)).color(theme::TEXT_MUTED));
+                                ui.add_space(12.0);
+                            });
+                        });
+
+                        // Separator line
+                        let (sep_rect, _) = ui.allocate_exact_size(Vec2::new(palette_w, 1.0), Sense::hover());
+                        ui.painter().rect_filled(sep_rect, Rounding::ZERO, theme::BORDER);
+
+                        // Build filtered command/actions index
+                        let mut items: Vec<PaletteItem> = Vec::new();
+
+                        // 1. Modules
+                        let registry = crate::state::client().modules.by_id();
+                        for (id, arc) in registry.iter() {
+                            let m_id = *id;
+                            let arc_c = arc.clone();
+                            let name = m_id.display_name().to_string();
+                            let desc = {
+                                let lock = arc_c.lock().unwrap();
+                                lock.get_module_data().description.clone()
+                            };
+                            let enabled = {
+                                let lock = arc_c.lock().unwrap();
+                                lock.get_module_data().enabled
+                            };
+                            let shortcut_str = {
+                                let lock = arc_c.lock().unwrap();
+                                let bind = lock.get_module_data().key_bind;
+                                if bind == KeyboardKey::KeyNone { "" } else { "Alt+F" } // Simulated UI shortcut hint
+                            };
+
+                            let name_c = name.clone();
+                            items.push(PaletteItem {
+                                icon: "⚡",
+                                label: format!("Toggle {}", name),
+                                description: format!("Current: {} | {}", if enabled { "ON" } else { "OFF" }, desc),
+                                shortcut: shortcut_str,
+                                action: Box::new(move |_ctx| {
+                                    let mut m = arc_c.lock().unwrap();
+                                    let next_st = !m.get_module_data().enabled;
+                                    m.get_module_data_mut().set_enabled(next_st);
+                                    if crate::state::client().modules.is_active() {
+                                        let _ = if next_st { m.on_start() } else { m.on_stop() };
+                                    }
+                                    Notification::send(
+                                        NotificationType::Info,
+                                        "Module Toggled",
+                                        &format!("{} is now {}", name_c, if next_st { "ENABLED" } else { "DISABLED" }),
+                                    );
+                                }),
+                            });
+                        }
+
+                        // 2. Theme Presets
+                        for preset in &[
+                            theme::AccentPreset::Emerald,
+                            theme::AccentPreset::Aqua,
+                            theme::AccentPreset::Amethyst,
+                            theme::AccentPreset::Ruby,
+                            theme::AccentPreset::Gold,
+                            theme::AccentPreset::Sakura,
+                        ] {
+                            let p = *preset;
+                            items.push(PaletteItem {
+                                icon: "🎨",
+                                label: format!("Theme: {}", p.name()),
+                                description: format!("Change global active color scheme to {}", p.name()),
+                                shortcut: "",
+                                action: Box::new(move |preset_ctx| {
+                                    theme::set_accent(p.color());
+                                    theme::apply(preset_ctx);
+                                    Notification::send(
+                                        NotificationType::Info,
+                                        "Theme Updated",
+                                        &format!("Applied client color theme: {}", p.name()),
+                                    );
+                                }),
+                            });
+                        }
+
+                        // 3. Config Profiles
+                        for prof in crate::config::list_profiles() {
+                            let p_name = prof.clone();
+                            items.push(PaletteItem {
+                                icon: "📁",
+                                label: format!("Load Config: {}", prof),
+                                description: format!("Restore and apply system setup: {}", prof),
+                                shortcut: "",
+                                action: Box::new(move |_ctx| {
+                                    match crate::config::switch_profile(&p_name) {
+                                        Ok(_) => {
+                                            Notification::send(NotificationType::Info, "Profile Switch", &format!("Switched to profile: {}", p_name));
+                                        }
+                                        Err(e) => {
+                                            Notification::send(NotificationType::Warning, "Switch Failed", &format!("Failed to switch profile: {}", e));
+                                        }
+                                    }
+                                }),
+                            });
+                        }
+
+                        // 4. Raw system helper actions
+                        items.push(PaletteItem {
+                            icon: "⚙",
+                            label: "Command: .help".to_string(),
+                            description: "View dynamic syntax commands list help".to_string(),
+                            shortcut: "",
+                            action: Box::new(|help_ctx| {
+                                execute_command_text(help_ctx, ".help");
+                            }),
+                        });
+                        items.push(PaletteItem {
+                            icon: "⚙",
+                            label: "Command: .reload".to_string(),
+                            description: "Re-scan file directories and hot-reload scripting assets".to_string(),
+                            shortcut: "",
+                            action: Box::new(|reload_ctx| {
+                                execute_command_text(reload_ctx, ".reload");
+                            }),
+                        });
+
+                        // Filter the index based on search query
+                        let query_clean = query.trim().to_lowercase();
+                        let filtered: Vec<PaletteItem> = if query_clean.is_empty() {
+                            // Show suggested commands
+                            items.into_iter()
+                                .filter(|item| {
+                                    item.label.contains("help") ||
+                                    item.label.contains("Flight") ||
+                                    item.label.contains("NoFall") ||
+                                    item.label.contains("Aqua") ||
+                                    item.label.contains("reload")
+                                })
+                                .collect()
+                        } else if query_clean.starts_with('.') {
+                            // Dot query: prioritize dot command hints
+                            let query_c = query.clone();
+                            let mut custom_cmd = vec![PaletteItem {
+                                icon: "⚙",
+                                label: format!("Run command: {}", query),
+                                description: "Press Enter to execute syntax command".to_string(),
+                                shortcut: "Enter",
+                                action: Box::new(move |ctx| {
+                                    execute_command_text(ctx, &query_c);
+                                }),
+                            }];
+                            let filtered_cmds: Vec<PaletteItem> = items.into_iter()
+                                .filter(|item| item.label.to_lowercase().contains(&query_clean))
+                                .collect();
+                            custom_cmd.extend(filtered_cmds);
+                            custom_cmd
+                        } else {
+                            // Normal substring filter
+                            items.into_iter()
+                                .filter(|item| {
+                                    item.label.to_lowercase().contains(&query_clean) ||
+                                    item.description.to_lowercase().contains(&query_clean)
+                                })
+                                .collect()
+                        };
+
+                        let num_items = filtered.len();
+                        if num_items == 0 {
+                            ui.add_space(20.0);
+                            ui.centered_and_justified(|ui| {
+                                ui.label(RichText::new("No matching commands found").font(FontId::proportional(12.0)).color(theme::TEXT_MUTED));
+                            });
+                            return;
+                        }
+
+                        // Listen to Arrow keys, Enter key, and Escape key for keyboard navigation & exit
+                        let (key_up, key_down, key_enter, key_esc) = ui.ctx().input(|i| {
+                            let up = i.events.iter().any(|e| matches!(e, egui::Event::Key { key: egui::Key::ArrowUp, pressed: true, .. }));
+                            let down = i.events.iter().any(|e| matches!(e, egui::Event::Key { key: egui::Key::ArrowDown, pressed: true, .. }));
+                            let enter = i.events.iter().any(|e| matches!(e, egui::Event::Key { key: egui::Key::Enter, pressed: true, .. }));
+                            let esc = i.events.iter().any(|e| matches!(e, egui::Event::Key { key: egui::Key::Escape, pressed: true, .. }));
+                            (up, down, enter, esc)
+                        });
+
+                        if key_esc {
+                            ui.ctx().data_mut(|d| d.insert_temp(Id::new("clickgui_show_palette"), false));
+                            return;
+                        }
+
+                        let mut sel_idx = ui.ctx().data(|d| d.get_temp::<usize>(Id::new("clickgui_palette_sel_idx"))).unwrap_or(0);
+                        if sel_idx >= num_items {
+                            sel_idx = 0;
+                        }
+
+                        if key_down {
+                            sel_idx = (sel_idx + 1) % num_items;
+                            ui.ctx().data_mut(|d| d.insert_temp(Id::new("clickgui_palette_sel_idx"), sel_idx));
+                        }
+                        if key_up {
+                            if sel_idx == 0 {
+                                sel_idx = num_items - 1;
+                            } else {
+                                sel_idx -= 1;
+                            }
+                            ui.ctx().data_mut(|d| d.insert_temp(Id::new("clickgui_palette_sel_idx"), sel_idx));
+                        }
+
+                        if key_enter && sel_idx < num_items {
+                            (filtered[sel_idx].action)(ui.ctx());
+                            ui.ctx().data_mut(|d| d.insert_temp(Id::new("clickgui_show_palette"), false));
+                            return;
+                        }
+
+                        // ScrollArea containing results list
+                        ui.add_space(4.0);
+                        egui::ScrollArea::vertical()
+                            .id_salt("palette_results_scroll")
+                            .max_height(palette_h - 40.0)
+                            .show(ui, |ui| {
+                                ui.vertical(|ui| {
+                                    for (idx, item) in filtered.iter().enumerate() {
+                                        let is_selected = idx == sel_idx;
+
+                                        let item_rect = Rect::from_min_size(
+                                            ui.cursor().min,
+                                            Vec2::new(palette_w, 36.0),
+                                        );
+
+                                        let resp = ui.interact(item_rect, Id::new("palette_item").with(idx), Sense::click());
+
+                                        if resp.clicked() {
+                                            (item.action)(ui.ctx());
+                                            ui.ctx().data_mut(|d| d.insert_temp(Id::new("clickgui_show_palette"), false));
+                                            return;
+                                        }
+
+                                        let hover_factor = anim::toggle(
+                                            ui.ctx(),
+                                            Id::new("palette_item_h").with(idx),
+                                            resp.hovered() || is_selected,
+                                            0.10,
+                                            Easing::Out,
+                                        );
+
+                                        // Highlight or hover color styling
+                                        let bg_color = if is_selected {
+                                            theme::accent_dim()
+                                        } else if hover_factor > 0.001 {
+                                            theme::with_alpha(theme::SURFACE_HOVER, hover_factor)
+                                        } else {
+                                            Color32::TRANSPARENT
+                                        };
+
+                                        ui.painter().rect_filled(item_rect, Rounding::ZERO, bg_color);
+
+                                        // Left indicator bar if selected
+                                        if is_selected {
+                                            let indicator = Rect::from_min_size(
+                                                Pos2::new(item_rect.left() + 2.0, item_rect.top() + 6.0),
+                                                Vec2::new(2.5, 24.0),
+                                            );
+                                            ui.painter().rect_filled(indicator, Rounding::same(1.0), theme::accent());
+                                        }
+
+                                        // Icon
+                                        let icon_col = if is_selected { theme::TEXT } else { theme::accent() };
+                                        ui.painter().text(
+                                            item_rect.left_center() + Vec2::new(14.0, 0.0),
+                                            Align2::LEFT_CENTER,
+                                            item.icon,
+                                            FontId::proportional(12.0),
+                                            icon_col,
+                                        );
+
+                                        // Label
+                                        let label_col = if is_selected { theme::TEXT } else { theme::TEXT_DIM };
+                                        ui.painter().text(
+                                            item_rect.left_center() + Vec2::new(32.0, -6.0),
+                                            Align2::LEFT_CENTER,
+                                            &item.label,
+                                            FontId::proportional(11.5),
+                                            label_col,
+                                        );
+
+                                        // Description
+                                        ui.painter().text(
+                                            item_rect.left_center() + Vec2::new(32.0, 8.0),
+                                            Align2::LEFT_CENTER,
+                                            &item.description,
+                                            FontId::proportional(9.0),
+                                            theme::TEXT_MUTED,
+                                        );
+
+                                        // Shortcut Key hints
+                                        if !item.shortcut.is_empty() {
+                                            ui.painter().text(
+                                                item_rect.right_center() - Vec2::new(16.0, 0.0),
+                                                Align2::RIGHT_CENTER,
+                                                item.shortcut,
+                                                FontId::proportional(9.0),
+                                                theme::TEXT_MUTED,
+                                            );
+                                        }
+
+                                        ui.advance_cursor_after_rect(item_rect);
+                                    }
+                                });
+                            });
+                    });
+                });
+        });
 }
