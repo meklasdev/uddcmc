@@ -39,6 +39,9 @@ pub enum Easing {
     In,
     Out,
     InOut,
+    Back,
+    Bounce,
+    Elastic,
 }
 
 impl Easing {
@@ -56,6 +59,66 @@ impl Easing {
                     1.0 - (-2.0 * t + 2.0).powi(3) / 2.0
                 }
             }
+            Easing::Back => {
+                let s: f32 = 1.70158;
+                let t_dec = t - 1.0;
+                t_dec * t_dec * ((s + 1.0) * t_dec + s) + 1.0
+            }
+            Easing::Bounce => {
+                let n1: f32 = 7.5625;
+                let d1: f32 = 2.75;
+                if t < 1.0 / d1 {
+                    n1 * t * t
+                } else if t < 2.0 / d1 {
+                    let t = t - 1.5 / d1;
+                    n1 * t * t + 0.75
+                } else if t < 2.5 / d1 {
+                    let t = t - 2.25 / d1;
+                    n1 * t * t + 0.9375
+                } else {
+                    let t = t - 2.625 / d1;
+                    n1 * t * t + 0.984375
+                }
+            }
+            Easing::Elastic => {
+                let c4 = (2.0 * std::f32::consts::PI) / 3.0;
+                if t == 0.0 {
+                    0.0
+                } else if t == 1.0 {
+                    1.0
+                } else {
+                    (2.0f32).powf(-10.0 * t) * ((t * 10.0 - 0.75) * c4).sin() + 1.0
+                }
+            }
+        }
+    }
+}
+
+/// A real physical inertia scroll state tracker with friction-based velocity decay.
+#[derive(Clone, Copy, Debug)]
+pub struct InertiaScrollState {
+    pub offset: f32,
+    pub velocity: f32,
+    pub last_seen: f64,
+}
+
+impl Default for InertiaScrollState {
+    fn default() -> Self {
+        Self {
+            offset: 0.0,
+            velocity: 0.0,
+            last_seen: 0.0,
+        }
+    }
+}
+
+impl InertiaScrollState {
+    /// Integrates the physics step with decay.
+    pub fn update(&mut self, dt: f32, friction: f32) {
+        self.offset += self.velocity * dt;
+        self.velocity *= (-friction * dt).exp();
+        if self.velocity.abs() < 0.1 {
+            self.velocity = 0.0;
         }
     }
 }

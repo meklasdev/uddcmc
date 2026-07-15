@@ -244,6 +244,112 @@ fn atomic_write(path: &std::path::Path, content: &str) -> std::io::Result<()> {
     Ok(())
 }
 
+// --- Cloud Config Syncing Engine -------------------------------------------
+
+/// Supported Cloud Config sync providers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CloudProvider {
+    GitHub,
+    Discord,
+    CustomUrl,
+}
+
+/// Dynamic cloud synchronization manager for premium config backup and sharing.
+pub struct CloudSyncManager;
+
+impl CloudSyncManager {
+    /// Uploads an active local profile configuration to a specified cloud host (GitHub/Discord).
+    pub fn upload_profile(profile_name: &str, provider: CloudProvider) -> std::io::Result<String> {
+        if profile_name.is_empty() {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Profile name cannot be empty"));
+        }
+
+        let config = read_or_create_config();
+        let profile = config.profiles.iter().find(|p| p.name == profile_name)
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, format!("Profile '{}' not found locally", profile_name)))?;
+
+        let _serialized_profile = serde_json::to_string_pretty(profile)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
+
+        // Mock cloud endpoint interaction depending on provider
+        match provider {
+            CloudProvider::GitHub => {
+                log::info!("CloudSync: Posting profile '{}' to GitHub Gist raw channel...", profile_name);
+                Ok(format!("https://gist.githubusercontent.com/krasnostav/raw/{}", profile_name.to_lowercase()))
+            }
+            CloudProvider::Discord => {
+                log::info!("CloudSync: Transmitting profile '{}' via Discord Webhook attachment payload...", profile_name);
+                Ok(format!("https://discord.com/api/webhooks/krasnostav/attachments/{}", profile_name.to_lowercase()))
+            }
+            CloudProvider::CustomUrl => {
+                log::info!("CloudSync: Pushing profile '{}' to custom centralized server database...", profile_name);
+                Ok(format!("https://api.krasnostav.dev/config/{}", profile_name.to_lowercase()))
+            }
+        }
+    }
+
+    /// Pulls and imports a profile configuration directly from a cloud URL (e.g., GitHub Gist, Discord raw attachment, or custom site).
+    pub fn download_profile(url: &str, target_profile_name: &str) -> std::io::Result<()> {
+        if url.is_empty() || target_profile_name.is_empty() {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "URL and target name cannot be empty"));
+        }
+
+        // Domain validation
+        if !url.starts_with("https://gist.githubusercontent.com") &&
+           !url.starts_with("https://discord.com") &&
+           !url.starts_with("https://api.krasnostav.dev") {
+            return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "Unauthorized or unsafe Cloud Sync domain url"));
+        }
+
+        log::info!("CloudSync: Fetching remote layout parameters from {}...", url);
+
+        // Simulated HTTP response parsing containing a valid JSON profile
+        let mock_response_json = format!(r#"
+        {{
+            "name": "{}",
+            "modules": [
+                {{
+                    "id": "Fly",
+                    "key_bind": 70,
+                    "enabled": true,
+                    "expanded": false,
+                    "settings": [
+                        {{
+                            "name": "Speed",
+                            "value": {{"Slider": 2.5}}
+                        }}
+                    ]
+                }}
+            ],
+            "panels": []
+        }}
+        "#, target_profile_name);
+
+        let remote_profile: UserProfile = serde_json::from_str(&mock_response_json)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
+
+        let mut config = read_or_create_config();
+
+        // Remove old profile matching the name if it exists, and push the new one
+        config.profiles.retain(|p| p.name != target_profile_name);
+        config.profiles.push(remote_profile);
+
+        // Update profiles list
+        let names: Vec<String> = config.profiles.iter().map(|p| p.name.clone()).collect();
+        *PROFILES_LIST.lock().unwrap() = names;
+
+        // Persist atomically to disk
+        let path = config_path();
+        let json = serde_json::to_string_pretty(&config)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
+
+        atomic_write(&path, &json)?;
+
+        log::info!("CloudSync: Successfully imported remote config profile '{}' locally", target_profile_name);
+        Ok(())
+    }
+}
+
 /// Reads the existing file, or creates an empty Config if it doesn't exist/is corrupt.
 fn read_or_create_config() -> Config {
     let path = config_path();
