@@ -19,18 +19,18 @@ pub fn draw(ctx: &Context) {
     draw_arraylist(ctx, &painter);
 }
 
-/// Top-left brand badge: `Dark` + accented `Client` inside a rounded chip.
+/// Top-left brand badge: `KRASNOSTAV` + accented `dev-local` inside a rounded chip.
 fn draw_watermark(ctx: &Context, painter: &Painter) {
     let font = FontId::proportional(17.0);
     let pad = Vec2::new(11.0, 6.0);
 
     // Measure both halves so the chip hugs the text exactly.
     let (dark_w, text_h) = ctx.fonts(|f| {
-        let g = f.layout_no_wrap("Dark".to_owned(), font.clone(), theme::TEXT);
+        let g = f.layout_no_wrap("KRASNOSTAV".to_owned(), font.clone(), theme::TEXT);
         (g.size().x, g.size().y)
     });
     let client_w = ctx.fonts(|f| {
-        f.layout_no_wrap("Client".to_owned(), font.clone(), theme::accent())
+        f.layout_no_wrap(" dev-local".to_owned(), font.clone(), theme::TEAL)
             .size()
             .x
     });
@@ -66,16 +66,16 @@ fn draw_watermark(ctx: &Context, painter: &Painter) {
     let after = painter.text(
         anchor,
         Align2::LEFT_CENTER,
-        "Dark",
+        "KRASNOSTAV",
         font.clone(),
         theme::TEXT,
     );
     painter.text(
         egui::pos2(after.max.x, anchor.y),
         Align2::LEFT_CENTER,
-        "Client",
+        " dev-local",
         font,
-        theme::accent(),
+        theme::TEAL,
     );
 }
 

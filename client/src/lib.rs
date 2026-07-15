@@ -62,7 +62,7 @@ pub extern "C" fn initialize_client() {
 
     // The log lives alongside the config, in the injector's directory — never
     // in `.minecraft` — see `config::base_dir`.
-    let log_path = config::base_dir().join("dark_client.log");
+    let log_path = config::base_dir().join("krasnostav.log");
     match WriteLogger::init(
         LevelFilter::Debug,
         Config::default(),
@@ -75,13 +75,13 @@ pub extern "C" fn initialize_client() {
     // Custom panic hook: guarantee the input / render hooks are released.
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
-        error!("DarkClient panicked! Restoring input/render hooks…");
+        error!("KRASNOSTAV panicked! Restoring input/render hooks…");
         cleanup_client();
         default_hook(panic_info);
     }));
 
     thread::spawn(|| {
-        info!("Starting DarkClient…");
+        info!("Starting KRASNOSTAV…");
 
         // Fixed, straight-line startup order: build the global state, then
         // register modules, then install the hooks last so the frame hook
@@ -96,7 +96,7 @@ pub extern "C" fn initialize_client() {
         if let Err(e) = install_hooks() {
             error!("Failed to install hooks: {e}");
         }
-        info!("DarkClient started");
+        info!("KRASNOSTAV started");
     });
 }
 

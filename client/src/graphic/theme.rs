@@ -57,6 +57,10 @@ pub const TEXT_MUTED: Color32 = Color32::from_rgb(95, 98, 110);
 pub const WARN: Color32 = Color32::from_rgb(245, 158, 11);
 pub const DANGER: Color32 = Color32::from_rgb(239, 68, 68);
 
+/// Secondary accents and panic.
+pub const TEAL: Color32 = Color32::from_rgb(20, 184, 166);      // #14B8A6 (Glowing Teal)
+pub const PANIC: Color32 = Color32::from_rgb(239, 68, 68);     // #EF4444 (Vibrant Red)
+
 // --- Presets ---------------------------------------------------------------
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
