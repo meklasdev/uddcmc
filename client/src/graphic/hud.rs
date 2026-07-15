@@ -163,7 +163,7 @@ fn draw_watermark_element(ctx: &Context, edit_mode: bool) {
                 // Render dynamic drag boundary border & anchor indicator
                 let painter = ui.painter();
                 painter.rect_filled(rect, Rounding::same(theme::RADIUS), Color32::from_rgba_unmultiplied(30, 41, 59, 140));
-                painter.rect_stroke(rect, Rounding::same(theme::RADIUS), Stroke::new(1.0, theme::TEAL));
+                painter.rect_stroke(rect, Rounding::same(theme::RADIUS), Stroke::new(1.0_f32, theme::TEAL));
 
                 // Bounding label
                 painter.text(
@@ -180,7 +180,7 @@ fn draw_watermark_element(ctx: &Context, edit_mode: bool) {
         let rect = Rect::from_min_size(display_pos, widget_size);
 
         painter.rect_filled(rect, Rounding::same(theme::RADIUS), Color32::from_black_alpha(165));
-        painter.rect_stroke(rect, Rounding::same(theme::RADIUS), Stroke::new(1.0, theme::BORDER));
+        painter.rect_stroke(rect, Rounding::same(theme::RADIUS), Stroke::new(1.0_f32, theme::BORDER));
 
         let edge = Rect::from_min_size(rect.min, Vec2::new(3.0, rect.height()));
         painter.rect_filled(edge, Rounding { nw: theme::RADIUS, sw: theme::RADIUS, ne: 0.0, se: 0.0 }, theme::accent());
@@ -279,7 +279,7 @@ fn draw_arraylist_element(ctx: &Context, edit_mode: bool) {
                 // Drag indicator border
                 let painter = ui.painter();
                 painter.rect_filled(rect, Rounding::ZERO, Color32::from_rgba_unmultiplied(30, 41, 59, 140));
-                painter.rect_stroke(rect, Rounding::ZERO, Stroke::new(1.0, theme::TEAL));
+                painter.rect_stroke(rect, Rounding::ZERO, Stroke::new(1.0_f32, theme::TEAL));
 
                 painter.text(
                     rect.center(),

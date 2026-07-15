@@ -16,8 +16,8 @@ use protocol::{Command, SOCKET_ADDR};
 use crate::platform::{AgentInjector, InjectError, PlatformInjector};
 
 /// Base names of the two shared libraries shipped alongside the injector.
-const AGENT_BASE: &str = "libagent_loader";
-const CLIENT_BASE: &str = "libclient";
+const AGENT_NAME: &str = "agent_loader";
+const CLIENT_NAME: &str = "client";
 
 /// Total time to keep retrying the connection to the freshly started agent.
 const CONNECT_DEADLINE: Duration = Duration::from_secs(5);
@@ -53,9 +53,9 @@ pub fn inject_with_progress(pid: u32, tx: &std::sync::mpsc::Sender<ProgressStep>
 
     let injector = PlatformInjector;
 
-    let agent_file = library_file_name(AGENT_BASE);
+    let agent_file = library_file_name(AGENT_NAME);
     let agent_path = locate_library(&agent_file)?;
-    let client_path = locate_library(&library_file_name(CLIENT_BASE))?;
+    let client_path = locate_library(&library_file_name(CLIENT_NAME))?;
 
     tx.send(ProgressStep::DetectingJvm).ok();
     std::thread::sleep(Duration::from_millis(250));
@@ -115,9 +115,9 @@ fn connect_with_retry() -> Result<TcpStream, InjectError> {
     }
 }
 
-/// `libfoo` → `libfoo.so` / `libfoo.dll` / `libfoo.dylib` for the host OS.
-fn library_file_name(base: &str) -> String {
-    format!("{base}.{}", std::env::consts::DLL_EXTENSION)
+/// `foo` → `libfoo.so` / `foo.dll` / `libfoo.dylib` for the host OS.
+fn library_file_name(name: &str) -> String {
+    format!("{}{name}.{}", std::env::consts::DLL_PREFIX, std::env::consts::DLL_EXTENSION)
 }
 
 /// Looks for `file_name` next to the injector executable first, then in the

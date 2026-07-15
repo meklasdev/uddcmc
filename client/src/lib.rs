@@ -95,6 +95,12 @@ pub extern "C" fn initialize_client() {
         config::load();
         if let Err(e) = install_hooks() {
             error!("Failed to install hooks: {e}");
+        } else {
+            crate::graphic::notification::Notification::send(
+                crate::graphic::notification::NotificationType::Success,
+                "Krasnostav",
+                "Pomyślnie załadowano!",
+            );
         }
         info!("KRASNOSTAV started");
     });

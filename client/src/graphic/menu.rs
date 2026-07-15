@@ -96,7 +96,7 @@ fn draw_custom_toggle(ui: &mut Ui, enabled: bool, id: Id) -> Response {
         painter.rect_stroke(
             rect,
             Rounding::same(8.0),
-            Stroke::new(1.0, theme::with_alpha(theme::accent(), val * 0.4)),
+            Stroke::new(1.0_f32, theme::with_alpha(theme::accent(), val * 0.4)),
         );
     }
 
@@ -203,7 +203,7 @@ fn draw_backdrop(ctx: &Context, progress: f32) {
             if dist < max_dist {
                 let alpha_line = (1.0 - dist / max_dist) * 0.12 * progress;
                 let line_color = theme::with_alpha(theme::TEAL, alpha_line);
-                painter.line_segment([p1.pos, p2.pos], Stroke::new(1.0, line_color));
+                painter.line_segment([p1.pos, p2.pos], Stroke::new(1.0_f32, line_color));
             }
         }
     }
@@ -265,7 +265,7 @@ pub fn draw(ctx: &Context, progress: f32) {
 
             egui::Frame::none()
                 .fill(theme::BASE)
-                .stroke(Stroke::new(1.0, theme::BORDER))
+                .stroke(Stroke::new(1.0_f32, theme::BORDER))
                 .rounding(Rounding::same(theme::RADIUS))
                 .shadow(ui.style().visuals.window_shadow)
                 .show(ui, |ui| {
@@ -380,7 +380,7 @@ fn draw_title_bar(ui: &mut Ui, target_pos: Pos2) {
     );
 
     ui.painter().rect_filled(search_rect, Rounding::same(6.0), search_bg);
-    ui.painter().rect_stroke(search_rect, Rounding::same(6.0), Stroke::new(1.0, search_border));
+    ui.painter().rect_stroke(search_rect, Rounding::same(6.0), Stroke::new(1.0_f32, search_border));
 
     ui.painter().text(
         search_rect.center(),
@@ -653,7 +653,7 @@ fn draw_modules_grid_tab(ui: &mut Ui) {
                     // Render Component Card (Category Box)
                     egui::Frame::none()
                         .fill(theme::SURFACE)
-                        .stroke(Stroke::new(1.0, theme::BORDER))
+                        .stroke(Stroke::new(1.0_f32, theme::BORDER))
                         .rounding(Rounding::same(theme::RADIUS_INNER))
                         .inner_margin(Margin::same(12.0))
                         .show(ui, |ui| {
@@ -804,7 +804,7 @@ fn draw_settings_modal_if_active(ctx: &Context, progress: f32) {
             // Glassmorphism wrapper (translucent elevated card background with strong borders)
             egui::Frame::none()
                 .fill(Color32::from_rgba_unmultiplied(22, 22, 27, 240)) // Glassy Surface
-                .stroke(Stroke::new(1.5, theme::accent())) // Glowing blue accent border
+                .stroke(Stroke::new(1.5_f32, theme::accent())) // Glowing blue accent border
                 .rounding(Rounding::same(theme::RADIUS))
                 .inner_margin(Margin::same(16.0))
                 .show(ui, |ui| {
@@ -1006,7 +1006,7 @@ fn draw_devtools_tab(ui: &mut Ui) {
         // FPS Card
         egui::Frame::none()
             .fill(theme::SURFACE)
-            .stroke(Stroke::new(1.0, theme::BORDER))
+            .stroke(Stroke::new(1.0_f32, theme::BORDER))
             .rounding(Rounding::same(theme::RADIUS_INNER))
             .inner_margin(Margin::same(12.0))
             .show(ui, |ui| {
@@ -1023,7 +1023,7 @@ fn draw_devtools_tab(ui: &mut Ui) {
         // Packets Card
         egui::Frame::none()
             .fill(theme::SURFACE)
-            .stroke(Stroke::new(1.0, theme::BORDER))
+            .stroke(Stroke::new(1.0_f32, theme::BORDER))
             .rounding(Rounding::same(theme::RADIUS_INNER))
             .inner_margin(Margin::same(12.0))
             .show(ui, |ui| {
@@ -1040,7 +1040,7 @@ fn draw_devtools_tab(ui: &mut Ui) {
         // Memory Card
         egui::Frame::none()
             .fill(theme::SURFACE)
-            .stroke(Stroke::new(1.0, theme::BORDER))
+            .stroke(Stroke::new(1.0_f32, theme::BORDER))
             .rounding(Rounding::same(theme::RADIUS_INNER))
             .inner_margin(Margin::same(12.0))
             .show(ui, |ui| {
@@ -1060,7 +1060,7 @@ fn draw_devtools_tab(ui: &mut Ui) {
     // Live Event Bus Logger Console
     egui::Frame::none()
         .fill(theme::SURFACE)
-        .stroke(Stroke::new(1.0, theme::BORDER))
+        .stroke(Stroke::new(1.0_f32, theme::BORDER))
         .rounding(Rounding::same(theme::RADIUS_INNER))
         .inner_margin(Margin::same(12.0))
         .show(ui, |ui| {
@@ -1161,7 +1161,7 @@ fn draw_configs_tab(ui: &mut Ui) {
 
                     egui::Frame::none()
                         .fill(if is_active { theme::ELEVATED } else { theme::SURFACE })
-                        .stroke(Stroke::new(1.0, if is_active { theme::TEAL } else { theme::BORDER }))
+                        .stroke(Stroke::new(1.0_f32, if is_active { theme::TEAL } else { theme::BORDER }))
                         .rounding(Rounding::same(theme::RADIUS_INNER))
                         .inner_margin(Margin::same(12.0))
                         .show(ui, |ui| {
@@ -1217,7 +1217,7 @@ fn draw_configs_tab(ui: &mut Ui) {
                 // Add New Profile card
                 egui::Frame::none()
                     .fill(theme::SURFACE)
-                    .stroke(Stroke::new(1.0, theme::BORDER))
+                    .stroke(Stroke::new(1.0_f32, theme::BORDER))
                     .rounding(Rounding::same(theme::RADIUS_INNER))
                     .inner_margin(Margin::same(12.0))
                     .show(ui, |ui| {
@@ -1272,7 +1272,7 @@ fn draw_scripts_tab(ui: &mut Ui) {
         // Simulated local script card
         egui::Frame::none()
             .fill(theme::SURFACE)
-            .stroke(Stroke::new(1.0, theme::BORDER))
+            .stroke(Stroke::new(1.0_f32, theme::BORDER))
             .rounding(Rounding::same(theme::RADIUS_INNER))
             .inner_margin(Margin::same(12.0))
             .show(ui, |ui| {
@@ -1299,7 +1299,7 @@ fn draw_scripts_tab(ui: &mut Ui) {
         // Script compilation status card
         egui::Frame::none()
             .fill(theme::SURFACE)
-            .stroke(Stroke::new(1.0, theme::BORDER))
+            .stroke(Stroke::new(1.0_f32, theme::BORDER))
             .rounding(Rounding::same(theme::RADIUS_INNER))
             .inner_margin(Margin::same(12.0))
             .show(ui, |ui| {
@@ -1336,7 +1336,7 @@ fn draw_community_tab(ui: &mut Ui) {
         // PRESENTS PREVIEW CARD
         egui::Frame::none()
             .fill(theme::SURFACE)
-            .stroke(Stroke::new(1.0, theme::BORDER))
+            .stroke(Stroke::new(1.0_f32, theme::BORDER))
             .rounding(Rounding::same(theme::RADIUS_INNER))
             .inner_margin(Margin::same(12.0))
             .show(ui, |ui| {
@@ -1359,7 +1359,7 @@ fn draw_community_tab(ui: &mut Ui) {
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                             let dl_btn = Button::new(RichText::new("Preview").font(FontId::proportional(9.5)))
                                 .fill(theme::ELEVATED)
-                                .stroke(Stroke::new(1.0, accent_c));
+                                .stroke(Stroke::new(1.0_f32, accent_c));
                             if ui.add(dl_btn).clicked() {
                                 Notification::send(NotificationType::Info, "Preset Preview", &format!("Preview Mode: Visualizing details for community setup: {name} (interactive imports are unavailable)"));
                             }
@@ -1373,7 +1373,7 @@ fn draw_community_tab(ui: &mut Ui) {
         // REVIEWS FEED CARD
         egui::Frame::none()
             .fill(theme::SURFACE)
-            .stroke(Stroke::new(1.0, theme::BORDER))
+            .stroke(Stroke::new(1.0_f32, theme::BORDER))
             .rounding(Rounding::same(theme::RADIUS_INNER))
             .inner_margin(Margin::same(12.0))
             .show(ui, |ui| {
@@ -1723,7 +1723,7 @@ fn draw_palette_overlay(ctx: &Context, progress: f32, dash_pos: Pos2) {
 
             egui::Frame::none()
                 .fill(Color32::from_rgba_unmultiplied(18, 18, 22, 252)) // Translucent premium backdrop
-                .stroke(Stroke::new(1.0, theme::accent())) // Glowing neon accent boundary
+                .stroke(Stroke::new(1.0_f32, theme::accent())) // Glowing neon accent boundary
                 .rounding(Rounding::same(8.0))
                 .shadow(ui.style().visuals.window_shadow)
                 .show(ui, |ui| {

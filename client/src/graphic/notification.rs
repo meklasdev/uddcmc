@@ -151,7 +151,7 @@ fn draw_card(painter: &Painter, rect: Rect, n: &Notification, remaining: f32) {
 
     // Glowing golden border for achievements
     let border_stroke = if n.notif_type == NotificationType::Achievement {
-        Stroke::new(1.5, Color32::from_rgb(251, 191, 36))
+        Stroke::new(1.5_f32, Color32::from_rgb(251, 191, 36))
     } else {
         Stroke::new(1.0_f32, theme::BORDER)
     };

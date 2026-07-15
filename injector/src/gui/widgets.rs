@@ -33,14 +33,14 @@ pub fn header(ui: &mut Ui) {
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 ui.add_space(ui.available_width() / 2.0 - 64.0);
                 ui.label(
-                    RichText::new("DARK")
+                    RichText::new("KRASNO")
                         .size(24.0)
                         .strong()
                         .color(Palette::TEXT)
                         .extra_letter_spacing(1.5),
                 );
                 ui.label(
-                    RichText::new("CLIENT")
+                    RichText::new("STAV")
                         .size(24.0)
                         .strong()
                         .color(Palette::ACCENT)
@@ -50,7 +50,7 @@ pub fn header(ui: &mut Ui) {
         });
         ui.add_space(2.0);
         ui.label(
-            RichText::new("PREMIUM LAUNCHER & INJECTOR")
+            RichText::new("https://www.krasnostav.pro/")
                 .size(10.0)
                 .strong()
                 .color(Palette::TEXT_DIM)
@@ -223,7 +223,7 @@ pub fn inject_button(ui: &mut Ui, app: &InjectorApp) -> Response {
     let label = if app.is_busy() {
         "Processing Injection..."
     } else {
-        "Inject Premium Client"
+        "Inject"
     };
     let button = Button::new(
         RichText::new(label)

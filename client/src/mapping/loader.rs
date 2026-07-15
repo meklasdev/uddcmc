@@ -1,4 +1,4 @@
-//! Game class-loader discovery for modded Minecraft (Fabric / Forge / NeoForge).
+//! Game class-loader discovery for modded and obfuscated Minecraft.
 //!
 //! Vanilla Minecraft runs every class through a single class loader, so a JNI
 //! `FindClass` from any thread resolves `net.minecraft.*` correctly. Mod
@@ -6,14 +6,14 @@
 //! `TransformingClassLoader` load the game in an *isolated* loader while the
 //! launch bootstrap still sits on the system class path. `FindClass` from a
 //! native thread then resolves a **second, dead copy** of `Minecraft` whose
-//! static `instance` field is null — exactly the "Minecraft is null" failure
-//! seen when injecting into a Fabric/Forge instance.
+//! static `instance` field is null.
 //!
-//! This module finds the loader that actually owns the *running* game by
-//! scanning every live thread's context class loader and keeping the one whose
-//! `Minecraft.getInstance()` returns a non-null instance. Routing every later
-//! class lookup through that loader (see [`Mapping::lookup_class`]) makes the
-//! reflected mapping path work identically on vanilla, Fabric and Forge.
+//! For **obfuscated** builds the same issue applies: even though the obfuscated
+//! class short-name (e.g. `bcj`) technically lives on the application classpath,
+//! modern launchers (post-Bootstrap) sometimes use an isolated `URLClassLoader`
+//! as the render thread's context loader, causing the system-loader copy to have
+//! a null `instance` field. We therefore capture the Render thread's context
+//! class loader even in obfuscated mode.
 //!
 //! [`Mapping::lookup_class`]: crate::mapping::Mapping
 
@@ -57,6 +57,69 @@ pub fn discover_game_loader(env: &mut JNIEnv) -> Option<GlobalRef> {
             None
         }
     }
+}
+
+/// Finds the context class loader of the "Render thread".
+///
+/// Used in obfuscated mode so that `ClassLoader.loadClass(obfuscated_name)`
+/// goes through the same loader that actually loaded the game classes instead
+/// of the system class loader (which may hold a dead, un-initialized copy).
+///
+/// Returns `None` if the render thread has not started yet or on any JNI error.
+pub fn discover_render_thread_loader(env: &mut JNIEnv) -> Option<GlobalRef> {
+    let thread_class = env.find_class("java/lang/Thread").ok()?;
+    let traces = env
+        .call_static_method(&thread_class, "getAllStackTraces", "()Ljava/util/Map;", &[])
+        .ok()?
+        .l()
+        .ok()?;
+    let threads = env
+        .call_method(&traces, "keySet", "()Ljava/util/Set;", &[])
+        .ok()?
+        .l()
+        .ok()?;
+    let iter = env
+        .call_method(&threads, "iterator", "()Ljava/util/Iterator;", &[])
+        .ok()?
+        .l()
+        .ok()?;
+
+    while env
+        .call_method(&iter, "hasNext", "()Z", &[])
+        .ok()?
+        .z()
+        .ok()?
+    {
+        let result = env.with_local_frame(16, |env| -> anyhow::Result<Option<GlobalRef>> {
+            let thread = env
+                .call_method(&iter, "next", "()Ljava/lang/Object;", &[])?
+                .l()?;
+            let name_obj = env
+                .call_method(&thread, "getName", "()Ljava/lang/String;", &[])?
+                .l()?;
+            let binding = JString::from(name_obj);
+            let name = env.get_string(&binding)?;
+            if name.to_str().ok() != Some(RENDER_THREAD) {
+                return Ok(None);
+            }
+            let loader = env
+                .call_method(
+                    &thread,
+                    "getContextClassLoader",
+                    "()Ljava/lang/ClassLoader;",
+                    &[],
+                )?
+                .l()?;
+            if loader.is_null() {
+                return Ok(None);
+            }
+            Ok(Some(env.new_global_ref(loader)?))
+        });
+        if let Ok(Some(loader)) = result {
+            return Some(loader);
+        }
+    }
+    None
 }
 
 /// Walks `Thread.getAllStackTraces()` and probes each thread's context class

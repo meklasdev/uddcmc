@@ -20,7 +20,7 @@ pub fn run() -> Result<(), eframe::Error> {
         ..Default::default()
     };
     eframe::run_native(
-        "DarkClient Injector",
+        "KRASNOSTAV Injector",
         native_options,
         Box::new(|cc| {
             theme::apply(&cc.egui_ctx);

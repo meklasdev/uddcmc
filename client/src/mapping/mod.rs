@@ -135,13 +135,13 @@ fn acquire_jvm() -> anyhow::Result<JavaVM> {
     // jvm.dll in the process's memory space, avoiding build-time linking to jvm.lib.
     unsafe {
         let lib = libloading::os::windows::Library::open_already_loaded("jvm.dll")?;
-        let get_created_vms: libloading::Symbol<
+        let get_created_vms = lib.get::<
             unsafe extern "system" fn(
-                vmBuf: *mut *mut jni::sys::JavaVM,
-                bufLen: jsize,
-                nVMs: *mut jsize,
-            ) -> jni::sys::jint,
-        > = lib.get(b"JNI_GetCreatedJavaVMs")?;
+                vm_buf: *mut *mut jni::sys::JavaVM,
+                buf_len: jsize,
+                n_vms: *mut jsize,
+            ) -> jni::sys::jint
+        >(b"JNI_GetCreatedJavaVMs")?;
 
         if get_created_vms(&mut raw, 1, &mut count) != JNI_OK || count == 0 {
             return Err(anyhow::anyhow!("no JVM found in this process"));
@@ -202,6 +202,19 @@ impl Mapping {
         }
 
         info!("Obfuscated Minecraft detected — using bundled Mojmap mappings");
+
+        // Even in obfuscated mode, modern launchers may load game classes through
+        // an isolated URLClassLoader set as the Render thread's context loader.
+        // find_class from a daemon thread then finds a dead copy via the system
+        // loader, which has a null Minecraft.instance. Capture the render thread's
+        // loader upfront so all subsequent class lookups use the right copy.
+        let render_loader = loader::discover_render_thread_loader(&mut env);
+        if render_loader.is_some() {
+            info!("Captured Render thread class loader for obfuscated class resolution.");
+        } else {
+            log::warn!("Render thread not found — using system class loader for obfuscated class resolution (may fail on isolated launchers).");
+        }
+
         let mut file: MappingFile = serde_json::from_str(include_str!("../../../mappings.json"))?;
 
         // Standard `java.*` classes are never obfuscated; they live in a
@@ -221,7 +234,7 @@ impl Mapping {
             mode: Mode::Obfuscated,
             version: file.version,
             classes,
-            class_loader: RwLock::new(None),
+            class_loader: RwLock::new(render_loader),
             class_handles: DashMap::new(),
         })
     }

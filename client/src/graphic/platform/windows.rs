@@ -51,27 +51,40 @@ pub fn open_glfw_library() -> Option<Library> {
         Library::new("glfw.dll")
             .or_else(|_| Library::new("glfw3.dll"))
             .or_else(|_| Library::new("glfw64.dll"))
+            .or_else(|_| Library::new("lwjgl_glfw.dll"))
             .ok()
     }
 }
 
 /// The buffer-swap function to hook: `wglSwapBuffers` from `opengl32.dll`.
 pub fn frame_hook_targets() -> Vec<HookTarget> {
-    // SAFETY: resolving wglSwapBuffers from opengl32.dll by name.
+    let mut targets = Vec::new();
     unsafe {
-        let Ok(library) = Library::new(GL_LIBRARY) else {
-            return Vec::new();
-        };
-        let address = match library.get::<unsafe extern "system" fn()>(b"wglSwapBuffers") {
-            Ok(symbol) => *symbol as *const () as usize,
-            Err(_) => return Vec::new(),
-        };
-        info!("found wglSwapBuffers in {GL_LIBRARY} at 0x{address:x}");
-        // Keep the library handle alive for the process lifetime.
-        std::mem::forget(library);
-        vec![HookTarget {
-            address,
-            label: GL_LIBRARY.to_string(),
-        }]
+        // Modern GLFW uses SwapBuffers from gdi32.dll directly.
+        if let Ok(gdi) = Library::new("gdi32.dll") {
+            if let Ok(symbol) = gdi.get::<unsafe extern "system" fn()>(b"SwapBuffers") {
+                let address = *symbol as *const () as usize;
+                info!("found SwapBuffers in gdi32.dll at 0x{address:x}");
+                targets.push(HookTarget {
+                    address,
+                    label: "gdi32.dll!SwapBuffers".to_string(),
+                });
+            }
+            std::mem::forget(gdi);
+        }
+
+        // Fallback: wglSwapBuffers from opengl32.dll
+        if let Ok(gl) = Library::new(GL_LIBRARY) {
+            if let Ok(symbol) = gl.get::<unsafe extern "system" fn()>(b"wglSwapBuffers") {
+                let address = *symbol as *const () as usize;
+                info!("found wglSwapBuffers in {GL_LIBRARY} at 0x{address:x}");
+                targets.push(HookTarget {
+                    address,
+                    label: format!("{GL_LIBRARY}!wglSwapBuffers"),
+                });
+            }
+            std::mem::forget(gl);
+        }
     }
+    targets
 }

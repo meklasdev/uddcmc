@@ -30,16 +30,48 @@ impl Minecraft {
     /// Builds the game wrapper from the live `Minecraft.getInstance()`.
     /// Succeeds whether or not a world is loaded.
     pub fn new() -> anyhow::Result<Minecraft> {
-        let jni_ref = mapping().in_frame(|| {
-            let minecraft = mapping()
-                .call_static_method(MinecraftClassType::Minecraft, "getInstance", &[])?
-                .l()?;
-            if minecraft.is_null() {
-                return Err(anyhow::anyhow!("Minecraft.getInstance() returned null"));
+        let mut retries = 0;
+        let (jni_ref, window) = loop {
+            let result = mapping().in_frame(|| {
+                let minecraft = mapping()
+                    .call_static_method(MinecraftClassType::Minecraft, "getInstance", &[])?
+                    .l()?;
+                
+                if minecraft.is_null() {
+                    return Ok(None);
+                }
+
+                let window_obj = mapping()
+                    .call_method(
+                        MinecraftClassType::Minecraft,
+                        &minecraft,
+                        "getWindow",
+                        &[],
+                    )?
+                    .l()?;
+
+                if window_obj.is_null() {
+                    return Ok(None);
+                }
+
+                let mc_global = mapping().new_global_ref(minecraft)?;
+                let win_global = mapping().new_global_ref(window_obj)?;
+                Ok(Some((mc_global, win_global)))
+            })?;
+
+            if let Some((mc, win)) = result {
+                break (mc, Window::from_global_ref(win));
             }
-            mapping().new_global_ref(minecraft)
-        })?;
-        let window = Window::new(&jni_ref)?;
+
+            retries += 1;
+            if retries == 1 {
+                log::info!("Minecraft instance or Window is not ready. Waiting for game to boot...");
+            }
+            if retries > 300 {
+                return Err(anyhow::anyhow!("Minecraft initialization timed out after 30 seconds"));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        };
 
         Ok(Minecraft {
             jni_ref,

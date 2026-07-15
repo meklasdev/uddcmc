@@ -172,6 +172,9 @@ impl InjectorApp {
                         }
                     }
                     changed = true;
+                    if should_clear {
+                        break;
+                    }
                 }
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {

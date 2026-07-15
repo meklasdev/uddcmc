@@ -26,6 +26,11 @@ impl Window {
         })
     }
 
+    /// Constructs a `Window` from an already-resolved `GlobalRef`.
+    pub(super) fn from_global_ref(r: GlobalRef) -> Window {
+        Window { jni_ref: r }
+    }
+
     /// The native GLFW window handle. `Window.getWindow()` was renamed to
     /// `handle()` in 1.21.9 — the rename registry maps it back on older builds.
     pub fn get_window(&self) -> anyhow::Result<jlong> {

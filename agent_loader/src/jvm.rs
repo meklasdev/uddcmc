@@ -85,13 +85,13 @@ fn get_jvm() -> Option<JavaVM> {
     // jvm.dll in the process's memory space, avoiding build-time linking to jvm.lib.
     unsafe {
         let lib = libloading::os::windows::Library::open_already_loaded("jvm.dll").ok()?;
-        let get_created_vms: libloading::Symbol<
+        let get_created_vms = lib.get::<
             unsafe extern "system" fn(
                 vmBuf: *mut *mut jni::sys::JavaVM,
                 bufLen: jsize,
                 nVMs: *mut jsize,
-            ) -> jni::sys::jint,
-        > = lib.get(b"JNI_GetCreatedJavaVMs").ok()?;
+            ) -> jni::sys::jint
+        >(b"JNI_GetCreatedJavaVMs").ok()?;
 
         if get_created_vms(&mut raw, 1, &mut count) != JNI_OK || count == 0 {
             return None;

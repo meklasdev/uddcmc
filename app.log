@@ -1,0 +1,18 @@
+12:52:01 [DEBUG] (1) eframe: Using the glow renderer
+12:52:01 [DEBUG] (1) eframe::native::glow_integration: Event::Resumed
+12:52:01 [DEBUG] (1) eframe::native::file_storage: Loading app state from "C:\\Users\\meklas\\AppData\\Roaming\\DarkClient Injector\\data\\app.ron"…
+12:52:01 [DEBUG] (1) eframe::native::glow_integration: trying to create glutin Display with config: ConfigTemplateBuilder { template: ConfigTemplate { color_buffer_type: Rgb { r_size: 8, g_size: 8, b_size: 8 }, alpha_size: 8, depth_size: 0, stencil_size: 0, num_samples: None, min_swap_interval: None, max_swap_interval: None, config_surface_types: ConfigSurfaceTypes(WINDOW), api: None, transparency: false, single_buffering: false, stereoscopy: None, float_pixels: false, max_pbuffer_width: None, hardware_accelerated: None, max_pbuffer_height: None, native_window: None } }
+12:52:03 [DEBUG] (1) eframe::native::glow_integration: using the first config from config picker closure. config: Wgl(Config { inner: Config { hdc: -218035217, pixel_format_index: 14 } })
+12:52:03 [DEBUG] (1) eframe::native::glow_integration: successfully created GL Display with version: WGL and supported features: DisplayFeatures(CONTEXT_ROBUSTNESS | CONTEXT_NO_ERROR | FLOAT_PIXEL_FORMAT | SWAP_CONTROL | CONTEXT_RELEASE_BEHAVIOR | CREATE_ES_CONTEXT | MULTISAMPLING_PIXEL_FORMATS | SRGB_FRAMEBUFFERS)
+12:52:03 [DEBUG] (1) eframe::native::glow_integration: creating gl context using raw window handle: Some(Win32(Win32WindowHandle { hwnd: 198954, hinstance: Some(140696338169856) }))
+12:52:03 [DEBUG] (1) eframe::native::glow_integration: Initializing egui_winit for viewport "FFFF"
+12:52:03 [DEBUG] (1) eframe::native::glow_integration: Creating a gl_surface for viewport "FFFF"
+12:52:03 [DEBUG] (1) egui_glow::painter: 
+opengl version: 3.3.0 NVIDIA 596.49
+opengl renderer: NVIDIA GeForce RTX 3060/PCIe/SSE2
+opengl vendor: NVIDIA Corporation
+12:52:03 [DEBUG] (1) egui_glow::shader_version: Shader version: Gl140 ("3.30 NVIDIA via Cg compiler").
+12:52:03 [DEBUG] (1) egui_glow::painter: Shader header: "#version 140\n".
+12:52:03 [DEBUG] (1) egui_glow::painter: SRGB texture Support: true
+12:52:03 [DEBUG] (1) egui_glow::painter: SRGB framebuffer Support: true
+12:52:03 [DEBUG] (1) egui_glow::vao: GL version: "3.3.0 NVIDIA 596.49".
