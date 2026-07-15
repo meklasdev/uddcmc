@@ -12,14 +12,29 @@ use egui::{
 /// Screen-edge padding shared by every HUD element.
 const MARGIN: f32 = 10.0;
 
-/// Draws the full HUD onto the background layer.
+/// Draws the watermark and enabled-module list on the background layer.
+///
+/// # Examples
+///
+/// ```
+/// let ctx = egui::Context::default();
+/// draw(&ctx);
+/// ```
 pub fn draw(ctx: &Context) {
     let painter = ctx.layer_painter(LayerId::new(Order::Background, Id::new("hud_layer")));
     draw_watermark(ctx, &painter);
     draw_arraylist(ctx, &painter);
 }
 
-/// Top-left brand badge: `KRASNOSTAV` + accented `dev-local` inside a rounded chip.
+/// Renders the top-left brand badge with `KRASNOSTAV` and `dev-local` in a rounded chip.
+///
+/// # Examples
+///
+/// ```
+/// let ctx = egui::Context::default();
+/// let painter = ctx.layer_painter(egui::LayerId::background());
+/// draw_watermark(&ctx, &painter);
+/// ```
 fn draw_watermark(ctx: &Context, painter: &Painter) {
     let font = FontId::proportional(17.0);
     let pad = Vec2::new(11.0, 6.0);

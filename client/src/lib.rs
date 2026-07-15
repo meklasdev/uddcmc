@@ -51,8 +51,15 @@ use std::thread;
 /// Cleared by [`cleanup_client`]; gates the frame hook and background loops.
 pub static RUNNING: AtomicBool = AtomicBool::new(false);
 
-/// Entry point called by the agent loader once the library is loaded.
-#[no_mangle]
+/// Initializes the client after the library is loaded.
+///
+/// Repeated calls are ignored. Startup continues in a background thread.
+///
+/// # Examples
+///
+/// ```
+/// initialize_client();
+/// ``` nggun
 pub extern "C" fn initialize_client() {
     // Make sure we can't initialize more than once.
     if RUNNING.swap(true, Ordering::SeqCst) {

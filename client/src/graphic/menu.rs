@@ -121,7 +121,16 @@ fn draw_backdrop(ctx: &Context, progress: f32) {
     );
 }
 
-/// Master function to render the integrated dashboard.
+/// Renders the ClickGUI dashboard and its active settings modal.
+///
+/// `progress` controls the dashboard and modal visibility animation.
+///
+/// # Examples
+///
+/// ```
+/// let ctx = egui::Context::default();
+/// draw(&ctx, 1.0);
+/// ```
 pub fn draw(ctx: &Context, progress: f32) {
     draw_backdrop(ctx, progress);
 
@@ -185,7 +194,15 @@ pub fn draw(ctx: &Context, progress: f32) {
     draw_settings_modal_if_active(ctx, progress);
 }
 
-/// The MainWindow Title Bar (górny pasek tytułowy)
+/// Renders the dashboard title bar and updates its stored position when dragged.
+///
+/// # Examples
+///
+/// ```ignore
+/// egui::CentralPanel::default().show(ctx, |ui| {
+///     draw_title_bar(ui, egui::pos2(100.0, 100.0));
+/// });
+/// ```
 fn draw_title_bar(ui: &mut Ui, target_pos: Pos2) {
     let titlebar_rect = Rect::from_min_size(ui.cursor().min, Vec2::new(DASHBOARD_W, TITLEBAR_H));
 
@@ -246,7 +263,13 @@ fn draw_title_bar(ui: &mut Ui, target_pos: Pos2) {
     ui.advance_cursor_after_rect(titlebar_rect);
 }
 
-/// The Fixed Left Sidebar navigation
+/// Renders the dashboard's fixed left sidebar, including navigation tabs, footer actions, and the panic control.
+///
+/// # Examples
+///
+/// ```no_run
+/// draw_sidebar(&mut ui, GuiTab::Modules, target_pos);
+/// ```
 fn draw_sidebar(ui: &mut Ui, active_tab: GuiTab, _target_pos: Pos2) {
     let sidebar_h = DASHBOARD_H - TITLEBAR_H;
     let sidebar_rect = Rect::from_min_size(ui.cursor().min, Vec2::new(SIDEBAR_W, sidebar_h));
@@ -397,7 +420,17 @@ fn draw_sidebar(ui: &mut Ui, active_tab: GuiTab, _target_pos: Pos2) {
     ui.advance_cursor_after_rect(sidebar_rect);
 }
 
-/// Main content panel router
+/// Renders the main dashboard panel for the selected tab.
+///
+/// The panel applies consistent padding and delegates content rendering to the
+/// corresponding Modules, Configs, Scripts, or Community view.
+///
+/// # Examples
+///
+/// ```ignore
+/// draw_main_content(ui, GuiTab::Modules);
+/// ```
+fn draw_main_content(ui: &mut Ui, active_tab: GuiTab) {
 fn draw_main_content(ui: &mut Ui, active_tab: GuiTab) {
     let main_h = DASHBOARD_H - TITLEBAR_H;
     let main_rect = Rect::from_min_size(
@@ -427,6 +460,16 @@ fn draw_main_content(ui: &mut Ui, active_tab: GuiTab) {
 // 1. MODULES GRID TAB (Main Card Grid / Orthographic technical view)
 // ============================================================================
 
+/// Renders the categorized module catalog and handles module selection and enablement toggles.
+///
+/// # Examples
+///
+/// ```
+/// egui::CentralPanel::default().show(&egui::Context::default(), |ui| {
+///     draw_modules_grid_tab(ui);
+/// });
+/// ```
+fn draw_modules_grid_tab(ui: &mut Ui) {
 fn draw_modules_grid_tab(ui: &mut Ui) {
     ui.horizontal(|ui| {
         ui.label(RichText::new("SYSTEM MODULE CATALOG").font(FontId::proportional(18.0)).strong().color(theme::TEXT));
@@ -583,6 +626,17 @@ fn draw_modules_grid_tab(ui: &mut Ui) {
 // 2. DETAILED SETTINGS MODAL (NoFall / Sub-module configurations)
 // ============================================================================
 
+/// Draws the selected module's settings modal when it is active.
+///
+/// The modal includes module activation, keybind, and advanced setting controls,
+/// and applies the supplied animation progress to its contents.
+///
+/// # Examples
+///
+/// ```ignore
+/// draw_settings_modal_if_active(&egui::Context::default(), 1.0);
+/// ```
+fn draw_settings_modal_if_active(ctx: &Context, progress: f32) {
 fn draw_settings_modal_if_active(ctx: &Context, progress: f32) {
     let show_modal = ctx.data(|d| d.get_temp::<bool>(Id::new("clickgui_show_modal"))).unwrap_or(false);
     if !show_modal {
@@ -791,6 +845,18 @@ fn draw_settings_modal_if_active(ctx: &Context, progress: f32) {
 // 3. CONFIGS TAB (Integrated profile boards & setup)
 // ============================================================================
 
+/// Renders the local profile management view, including profile cards and profile creation controls.
+///
+/// # Examples
+///
+/// ```ignore
+/// let mut ui = /* an egui UI context */;
+/// draw_configs_tab(&mut ui);
+/// ```
+///
+/// # Parameters
+///
+/// * `ui` - The egui user interface in which to render the profile controls.
 fn draw_configs_tab(ui: &mut Ui) {
     ui.label(RichText::new("PROFILE MANAGEMENT").font(FontId::proportional(18.0)).strong().color(theme::TEXT));
     ui.add_space(4.0);
@@ -889,6 +955,16 @@ fn draw_configs_tab(ui: &mut Ui) {
 // 4. SCRIPTS TAB (Visual lua script indicators)
 // ============================================================================
 
+/// Renders the scripts tab with script controls and compiler status information.
+///
+/// # Examples
+///
+/// ```
+/// let ctx = egui::Context::default();
+/// egui::CentralPanel::default().show(&ctx, |ui| {
+///     draw_scripts_tab(ui);
+/// });
+/// ```
 fn draw_scripts_tab(ui: &mut Ui) {
     ui.label(RichText::new("DYNAMIC LUA ENGINE").font(FontId::proportional(18.0)).strong().color(theme::TEXT));
     ui.add_space(4.0);
@@ -952,6 +1028,16 @@ fn draw_scripts_tab(ui: &mut Ui) {
 // 5. COMMUNITY TAB (Integrated reviews feed / top ratings panel directly in grid)
 // ============================================================================
 
+/// Renders the community board with shared configuration presets and user reviews.
+///
+/// # Examples
+///
+/// ```
+/// let ctx = egui::Context::default();
+/// egui::CentralPanel::default().show(&ctx, |ui| {
+///     draw_community_tab(ui);
+/// });
+/// ```
 fn draw_community_tab(ui: &mut Ui) {
     ui.label(RichText::new("INTEGRATED COMMUNITY BOARD").font(FontId::proportional(18.0)).strong().color(theme::TEXT));
     ui.add_space(4.0);
@@ -1056,6 +1142,27 @@ fn draw_community_tab(ui: &mut Ui) {
 // HELPER METHODS
 // ============================================================================
 
+/// Captures the pending keyboard input and updates a module's keybind.
+///
+/// Pressing Escape clears the keybind. If the pressed key is already assigned to
+/// another module, the current keybind is preserved and a warning is sent.
+///
+/// # Parameters
+///
+/// * `data` — Module data whose keybind may be updated.
+/// * `arc` — The module receiving the keybind.
+/// * `registry` — Registered modules checked for keybind conflicts.
+///
+/// # Returns
+///
+/// `true` if a keypress was processed, `false` if no pending keypress was available.
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// let processed = capture_keybind(&mut data, &module, &registry);
+/// assert!(processed);
+/// ```
 fn capture_keybind(data: &mut ModuleData, arc: &ModuleArc, registry: &ModuleMap) -> bool {
     let pressed = LAST_KEY_PRESSED.swap(-1, Ordering::Relaxed);
     if pressed == -1 {
