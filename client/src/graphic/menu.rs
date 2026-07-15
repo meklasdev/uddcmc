@@ -22,6 +22,8 @@ use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
+pub static PANIC_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Total layout size
 const DASHBOARD_W: f32 = 840.0;
 const DASHBOARD_H: f32 = 560.0;
@@ -194,7 +196,19 @@ fn draw_title_bar(ui: &mut Ui, target_pos: Pos2) {
     if drag_resp.dragged() {
         let delta = ui.ctx().input(|i| i.pointer.delta());
         let next = target_pos + delta;
-        ui.ctx().data_mut(|d| d.insert_temp(Id::new("clickgui_dash_pos"), next));
+
+        let screen_rect = ui.ctx().screen_rect();
+        let min_x = screen_rect.min.x - DASHBOARD_W + 40.0;
+        let max_x = screen_rect.max.x - 40.0;
+        let min_y = screen_rect.min.y;
+        let max_y = screen_rect.max.y - TITLEBAR_H;
+
+        let clamped_next = Pos2::new(
+            next.x.clamp(min_x, max_x),
+            next.y.clamp(min_y, max_y),
+        );
+
+        ui.ctx().data_mut(|d| d.insert_temp(Id::new("clickgui_dash_pos"), clamped_next));
     }
 
     // Titlebar background
@@ -391,7 +405,7 @@ fn draw_sidebar(ui: &mut Ui, active_tab: GuiTab, _target_pos: Pos2) {
         Color32::WHITE,
     );
     if panic_resp.clicked() {
-        std::thread::spawn(crate::graphic::ui_engine::call_panic);
+        PANIC_REQUESTED.store(true, Ordering::Relaxed);
     }
 
     ui.advance_cursor_after_rect(sidebar_rect);
@@ -554,7 +568,15 @@ fn draw_modules_grid_tab(ui: &mut Ui) {
                                             let next_st = !enabled;
                                             m.get_module_data_mut().set_enabled(next_st);
                                             if crate::state::client().modules.is_active() {
-                                                let _ = if next_st { m.on_start() } else { m.on_stop() };
+                                                let res = if next_st { m.on_start() } else { m.on_stop() };
+                                                if let Err(e) = res {
+                                                    m.get_module_data_mut().set_enabled(enabled);
+                                                    Notification::send(
+                                                        NotificationType::Warning,
+                                                        "Transition Failed",
+                                                        &format!("Failed to toggle module {}: {}", name, e),
+                                                    );
+                                                }
                                             }
                                         }
                                     }
@@ -602,6 +624,13 @@ fn draw_settings_modal_if_active(ctx: &Context, progress: f32) {
     );
 
     // Semi-transparent backdrop block for glassmorphism layout
+    egui::Area::new(Id::new("settings_modal_backdrop"))
+        .order(Order::Foreground)
+        .fixed_pos(screen_rect.min)
+        .show(ctx, |ui| {
+            ui.allocate_rect(screen_rect, egui::Sense::click());
+        });
+
     let dim_painter = ctx.layer_painter(LayerId::new(Order::Foreground, Id::new("settings_modal_dim")));
     dim_painter.rect_filled(screen_rect, Rounding::ZERO, Color32::from_black_alpha(110));
 
@@ -693,7 +722,15 @@ fn draw_settings_modal_if_active(ctx: &Context, progress: f32) {
                                         let next = !enabled;
                                         module.get_module_data_mut().set_enabled(next);
                                         if crate::state::client().modules.is_active() {
-                                            let _ = if next { module.on_start() } else { module.on_stop() };
+                                            let res = if next { module.on_start() } else { module.on_stop() };
+                                            if let Err(e) = res {
+                                                module.get_module_data_mut().set_enabled(enabled);
+                                                Notification::send(
+                                                    NotificationType::Warning,
+                                                    "Transition Failed",
+                                                    &format!("Failed to toggle module {}: {}", module_name, e),
+                                                );
+                                            }
                                         }
                                     }
                                 });
@@ -800,89 +837,112 @@ fn draw_configs_tab(ui: &mut Ui) {
     let active_prof = crate::config::active_profile();
     let list_prof = crate::config::list_profiles();
 
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing = Vec2::new(14.0, 14.0);
-        let card_w = (ui.available_width() - 14.0) / 2.0;
+    egui::ScrollArea::vertical()
+        .id_salt("configs_scroll")
+        .max_height(400.0)
+        .show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = Vec2::new(14.0, 14.0);
+                let card_w = (ui.available_width() - 14.0) / 2.0;
 
-        // Dedicated Config card directly in grid
-        for prof in list_prof {
-            let is_active = prof == active_prof;
+                // Dedicated Config card directly in grid
+                for prof in list_prof {
+                    let is_active = prof == active_prof;
 
-            egui::Frame::none()
-                .fill(if is_active { theme::ELEVATED } else { theme::SURFACE })
-                .stroke(Stroke::new(1.0, if is_active { theme::TEAL } else { theme::BORDER }))
-                .rounding(Rounding::same(theme::RADIUS_INNER))
-                .inner_margin(Margin::same(12.0))
-                .show(ui, |ui| {
-                    ui.set_min_width(card_w);
-                    ui.set_max_width(card_w);
+                    egui::Frame::none()
+                        .fill(if is_active { theme::ELEVATED } else { theme::SURFACE })
+                        .stroke(Stroke::new(1.0, if is_active { theme::TEAL } else { theme::BORDER }))
+                        .rounding(Rounding::same(theme::RADIUS_INNER))
+                        .inner_margin(Margin::same(12.0))
+                        .show(ui, |ui| {
+                            ui.set_min_width(card_w);
+                            ui.set_max_width(card_w);
 
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(format!("📁 {}", prof)).font(FontId::proportional(13.0)).strong().color(theme::TEXT));
-                        if is_active {
-                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                ui.label(RichText::new("● Active").font(FontId::proportional(10.0)).color(theme::TEAL));
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new(format!("📁 {}", prof)).font(FontId::proportional(13.0)).strong().color(theme::TEXT));
+                                if is_active {
+                                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                        ui.label(RichText::new("● Active").font(FontId::proportional(10.0)).color(theme::TEAL));
+                                    });
+                                }
                             });
-                        }
-                    });
 
-                    ui.add_space(8.0);
-                    ui.label(RichText::new("Locally cached settings and parameters.").font(FontId::proportional(10.5)).color(theme::TEXT_MUTED));
-                    ui.add_space(12.0);
+                            ui.add_space(8.0);
+                            ui.label(RichText::new("Locally cached settings and parameters.").font(FontId::proportional(10.5)).color(theme::TEXT_MUTED));
+                            ui.add_space(12.0);
 
-                    // Row of interactive actions
-                    ui.horizontal(|ui| {
-                        let load_btn = Button::new(RichText::new("Load").font(FontId::proportional(10.5)).color(theme::TEXT))
-                            .fill(theme::SURFACE)
-                            .rounding(Rounding::same(4.0));
-                        if ui.add_enabled(!is_active, load_btn).clicked() {
-                            crate::config::switch_profile(&prof);
-                            Notification::send(NotificationType::Info, "Profile Loaded", &format!("Successfully switched parameters to profile: {prof}"));
-                        }
+                            // Row of interactive actions
+                            ui.horizontal(|ui| {
+                                let load_btn = Button::new(RichText::new("Load").font(FontId::proportional(10.5)).color(theme::TEXT))
+                                    .fill(theme::SURFACE)
+                                    .rounding(Rounding::same(4.0));
+                                if ui.add_enabled(!is_active, load_btn).clicked() {
+                                    match crate::config::switch_profile(&prof) {
+                                        Ok(_) => {
+                                            Notification::send(NotificationType::Info, "Profile Loaded", &format!("Successfully switched parameters to profile: {prof}"));
+                                        }
+                                        Err(e) => {
+                                            Notification::send(NotificationType::Warning, "Profile Load Failed", &format!("Failed to switch profile: {e}"));
+                                        }
+                                    }
+                                }
 
-                        let del_btn = Button::new(RichText::new("Delete").font(FontId::proportional(10.5)).color(theme::PANIC))
-                            .fill(theme::SURFACE)
-                            .rounding(Rounding::same(4.0));
-                        if ui.add_enabled(prof != "Default", del_btn).clicked() {
-                            crate::config::delete_profile(&prof);
-                            Notification::send(NotificationType::Warning, "Profile Deleted", &format!("Deleted local config file: {prof}"));
-                        }
-                    });
-                });
-        }
-
-        // Add New Profile card
-        egui::Frame::none()
-            .fill(theme::SURFACE)
-            .stroke(Stroke::new(1.0, theme::BORDER))
-            .rounding(Rounding::same(theme::RADIUS_INNER))
-            .inner_margin(Margin::same(12.0))
-            .show(ui, |ui| {
-                ui.set_min_width(card_w);
-                ui.set_max_width(card_w);
-
-                ui.label(RichText::new("＋ Create New Profile").font(FontId::proportional(13.0)).strong().color(theme::TEXT));
-                ui.add_space(8.0);
-
-                let mut new_p_name = ui.data(|d| d.get_temp::<String>(Id::new("dash_new_profile_input"))).unwrap_or_default();
-                let text_edit = ui.text_edit_singleline(&mut new_p_name);
-                if text_edit.changed() {
-                    ui.data_mut(|d| d.insert_temp(Id::new("dash_new_profile_input"), new_p_name.clone()));
+                                let del_btn = Button::new(RichText::new("Delete").font(FontId::proportional(10.5)).color(theme::PANIC))
+                                    .fill(theme::SURFACE)
+                                    .rounding(Rounding::same(4.0));
+                                if ui.add_enabled(prof != "Default", del_btn).clicked() {
+                                    match crate::config::delete_profile(&prof) {
+                                        Ok(_) => {
+                                            Notification::send(NotificationType::Warning, "Profile Deleted", &format!("Deleted local config file: {prof}"));
+                                        }
+                                        Err(e) => {
+                                            Notification::send(NotificationType::Warning, "Profile Delete Failed", &format!("Failed to delete profile: {e}"));
+                                        }
+                                    }
+                                }
+                            });
+                        });
                 }
 
-                ui.add_space(10.0);
-                let create_btn = Button::new(RichText::new("Add Profile Setup").font(FontId::proportional(10.5)).color(theme::TEXT))
-                    .fill(theme::ELEVATED)
-                    .rounding(Rounding::same(4.0));
+                // Add New Profile card
+                egui::Frame::none()
+                    .fill(theme::SURFACE)
+                    .stroke(Stroke::new(1.0, theme::BORDER))
+                    .rounding(Rounding::same(theme::RADIUS_INNER))
+                    .inner_margin(Margin::same(12.0))
+                    .show(ui, |ui| {
+                        ui.set_min_width(card_w);
+                        ui.set_max_width(card_w);
 
-                if ui.add(create_btn).clicked() && !new_p_name.trim().is_empty() {
-                    let name_clean = new_p_name.trim().to_string();
-                    crate::config::create_profile(&name_clean);
-                    ui.data_mut(|d| d.insert_temp(Id::new("dash_new_profile_input"), String::new()));
-                    Notification::send(NotificationType::Info, "Profile Initialized", &format!("Initialized new local setup: {name_clean}"));
-                }
+                        ui.label(RichText::new("＋ Create New Profile").font(FontId::proportional(13.0)).strong().color(theme::TEXT));
+                        ui.add_space(8.0);
+
+                        let mut new_p_name = ui.data(|d| d.get_temp::<String>(Id::new("dash_new_profile_input"))).unwrap_or_default();
+                        let text_edit = ui.text_edit_singleline(&mut new_p_name);
+                        if text_edit.changed() {
+                            ui.data_mut(|d| d.insert_temp(Id::new("dash_new_profile_input"), new_p_name.clone()));
+                        }
+
+                        ui.add_space(10.0);
+                        let create_btn = Button::new(RichText::new("Add Profile Setup").font(FontId::proportional(10.5)).color(theme::TEXT))
+                            .fill(theme::ELEVATED)
+                            .rounding(Rounding::same(4.0));
+
+                        if ui.add(create_btn).clicked() && !new_p_name.trim().is_empty() {
+                            let name_clean = new_p_name.trim().to_string();
+                            match crate::config::create_profile(&name_clean) {
+                                Ok(_) => {
+                                    ui.data_mut(|d| d.insert_temp(Id::new("dash_new_profile_input"), String::new()));
+                                    Notification::send(NotificationType::Info, "Profile Initialized", &format!("Initialized new local setup: {name_clean}"));
+                                }
+                                Err(e) => {
+                                    Notification::send(NotificationType::Warning, "Profile Creation Failed", &format!("Failed to create profile: {e}"));
+                                }
+                            }
+                        }
+                    });
             });
-    });
+        });
 }
 
 // ============================================================================
@@ -987,11 +1047,11 @@ fn draw_community_tab(ui: &mut Ui) {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(name).font(FontId::proportional(11.0)).strong().color(theme::TEXT));
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            let dl_btn = Button::new(RichText::new("Download").font(FontId::proportional(9.5)))
+                            let dl_btn = Button::new(RichText::new("Preview").font(FontId::proportional(9.5)))
                                 .fill(theme::ELEVATED)
                                 .stroke(Stroke::new(1.0, accent_c));
                             if ui.add(dl_btn).clicked() {
-                                Notification::send(NotificationType::Info, "Config download", &format!("Downloading profile: {name}"));
+                                Notification::send(NotificationType::Info, "Preset Preview", &format!("Preview Mode: Visualizing details for community setup: {name} (interactive imports are unavailable)"));
                             }
                             ui.label(RichText::new(rat).font(FontId::proportional(10.0)).color(Color32::from_rgb(250, 204, 21)));
                         });
@@ -1038,6 +1098,10 @@ fn draw_community_tab(ui: &mut Ui) {
                             ui.painter().circle_filled(av_rect.center(), 7.0, r.avatar_color);
 
                             ui.label(RichText::new(r.user).font(FontId::proportional(11.0)).strong().color(theme::TEXT));
+                            let rating_val = r.rating.clamp(0, 5);
+                            let stars = "★".repeat(rating_val) + &"☆".repeat(5 - rating_val);
+                            ui.label(RichText::new(stars).font(FontId::proportional(10.0)).color(Color32::from_rgb(250, 204, 21)));
+
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                 ui.label(RichText::new(r.date).font(FontId::proportional(9.5)).color(theme::TEXT_MUTED));
                             });
@@ -1062,6 +1126,9 @@ fn capture_keybind(data: &mut ModuleData, arc: &ModuleArc, registry: &ModuleMap)
         return false;
     }
     let key = KeyboardKey::from(pressed);
+    if key == KeyboardKey::KeyNone {
+        return false;
+    }
     if key == KeyboardKey::KeyEscape {
         data.key_bind = KeyboardKey::KeyNone;
         return true;

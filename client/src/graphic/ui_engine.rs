@@ -237,6 +237,10 @@ pub unsafe fn render_egui_ui() {
         crate::gl::BindSampler(0, last_sampler as u32);
         crate::gl::ActiveTexture(last_active_texture as u32);
     }
+
+    if crate::graphic::menu::PANIC_REQUESTED.swap(false, Ordering::Relaxed) {
+        crate::graphic::ui_engine::call_panic();
+    }
 }
 
 pub fn call_panic() {
@@ -244,7 +248,7 @@ pub fn call_panic() {
     // through the GUI's close handler (which is what normally saves), and the
     // modules are about to be force-disabled for the unload — so save now,
     // while they still hold the state the user actually chose.
-    crate::config::save();
+    let _ = crate::config::save();
 
     // A module is only running — and so only needs stopping — while active.
     let world_active = crate::state::client().modules.is_active();
