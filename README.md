@@ -1,23 +1,14 @@
-# 🐺 KRASNOSTAV Minecraft Client Overlay
+# KRASNOSTAV
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg?style=flat-square)](#)
 [![Platform Support](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-blue.svg?style=flat-square)](#)
 [![Language](https://img.shields.io/badge/language-Rust%20%7C%20Lua-orange.svg?style=flat-square)](#)
 [![License](https://img.shields.io/badge/license-GPL--3.0-red.svg?style=flat-square)](#)
 
-```
-██╗  ██╗██████╗  █████╗ ███████╗███╗   ██╗ ██████╗ ███████╗████████╗ █████╗ ██╗   ██╗
-██║ McKinney/  ██╔══██╗██╔══██╗██╔════╝████╗  ██║██╔═══██╗██╔════╝╚══██╔══╝██╔══██╗██║   ██║
-█████╔╝ ██████╔╝███████║███████╗██║██║ ██║██║   ██║███████╗   ██║   ███████║██║   ██║
-██╔═██╗ ██╔══██╗██╔══██║╚════██║██║╚██╗██║██║   ██║╚════██║   ██║   ██╔══██║╚██╗ ██╔╝
-██║  ██╗██║  ██║██║  ██║███████║██║ ╚████║╚██████╔╝███████║   ██║   ██║  ██║ ╚████╔╝
-╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═══╝ ╚═════╝ ╚══════╝   ╚═╝   ╚═╝  ╚═╝  ╚═══╝
-                    NATIVE HIGH-PERFORMANCE RUNTIME INJECTION WORKSPACE
-```
 
 ---
 
-## 🌌 Architectural Philosophy: Minecraft Client as an IDE
+# Architectural Philosophy: Minecraft Client as an IDE
 
 Traditional Minecraft cheat clients (such as Vape, LiquidBounce, or Raven) are built as heavyweight, invasive modifications. They rely on direct Java bytecode manipulation, generate massive garbage collector (GC) overhead inside the JVM, and utilize rigid, outdated GUI overlays (e.g. standard ImGui wrappers) that feel out-of-place and stutter under load.
 
@@ -34,18 +25,6 @@ Traditional Minecraft cheat clients (such as Vape, LiquidBounce, or Raven) are b
 
 The codebase is organized as a modular Rust Cargo workspace:
 
-```
-DarkClient/
-├── protocol/         # Optimized, zero-copy packet serialization & protocol schemas
-├── injector/         # Process injection engine supporting dynamic runtime library attachment
-├── agent_loader/     # Native bootstrapping bridge loaded directly into the target process
-├── client/           # Core client execution engine, modules, scripting VM, and UI engine
-├── mapping_derive/   # Procedural macros for mapping JVM fields/methods automatically
-├── assets/
-│   ├── docs/         # Deep technical specifications & architecture books
-│   └── scripts/      # Live-loadable Lua scripts (e.g., krasnostav_pingspoof.lua)
-└── java_mappings.json# Deobfuscation schemas for seamless JVM-to-Rust JNI field resolution
-```
 
 ---
 
