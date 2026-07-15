@@ -105,9 +105,9 @@ fn find_jvm_lib() {
         return;
     }
 
-    // --- 5) Nothing found: fail build with instructions ---
-    panic!(
-        "build.rs: could not find jvm.lib. 
+    // --- 5) Nothing found: print warning instead of panicking ---
+    println!(
+        "cargo:warning=build.rs: could not find jvm.lib. Build will continue, but tests might fail to link.
     - Set JAVA_HOME to your JDK root (e.g. C:\\Program Files\\Java\\jdk-21)
     - Or set JVM_LIB_DIR directly to the folder containing jvm.lib"
     );
