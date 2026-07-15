@@ -43,3 +43,5 @@ pub fn open_glfw_library() -> Option<Library> {
 pub fn frame_hook_targets() -> Vec<HookTarget> {
     imp::frame_hook_targets()
 }
+
+pub mod renderer;

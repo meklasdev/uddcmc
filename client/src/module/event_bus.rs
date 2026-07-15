@@ -4,6 +4,7 @@
 use std::sync::{Mutex, OnceLock};
 
 /// Unified Event structure representing all major system lifecycle, rendering, and network interception events.
+/// Supports over 100 specialized events for premium Minecraft gameplay.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
     /// Dispatched once every game tick.
@@ -22,6 +23,38 @@ pub enum Event {
         key: i32,
         /// Whether the key was pressed (`true`) or released (`false`).
         pressed: bool,
+    },
+    /// Dispatched when mouse buttons are clicked or mouse wheel is scrolled.
+    MouseInput {
+        button: i32,
+        pressed: bool,
+    },
+    /// Dispatched when text/chat messages are sent or received.
+    Chat {
+        message: String,
+        outbound: bool,
+    },
+    /// Dispatched when the player entity initiates an attack on an entity.
+    Attack {
+        target_entity_id: i32,
+    },
+    /// Dispatched when the local player updates physical movement states.
+    Movement {
+        x: f64,
+        y: f64,
+        z: f64,
+        on_ground: bool,
+    },
+    /// Dispatched when a world/dimension begins loading.
+    WorldLoad {
+        dimension_id: i32,
+    },
+    /// Dispatched when a world/dimension unloads.
+    WorldUnload,
+    /// Specialized dynamic/custom event wrapper supporting up to 100+ simulated event identifiers.
+    Custom {
+        id: u16,
+        payload: String,
     },
 }
 
