@@ -1,108 +1,86 @@
 DarkClient
 
-DarkClient to framework napisany w Rust, który komunikuje się z uruchomioną instancją Minecrafta przez JNI. Projekt skupia się na wydajności, modularnej architekturze i analizie działania JVM w czasie rzeczywistym.
+DarkClient is a modular Minecraft runtime framework written in Rust.
 
-Nie jest to kolejny projekt z przeładowanym README. Celem jest dostarczenie solidnej bazy kodu, którą można rozwijać, testować i dostosowywać do własnych potrzeb.
+The project focuses on JNI integration, runtime JVM interaction, hot-reloadable systems, and a modern user interface built from the ground up.
 
-Założenia
+Unlike traditional clients built around large Java codebases, DarkClient keeps most of the heavy lifting inside native Rust code while exposing clean abstractions for modules, rendering systems, configuration management, and runtime mappings.
 
-- Rust jako główny język projektu
-- Bezpośrednia komunikacja z JVM przez JNI
-- Modułowa architektura
-- Dynamiczne ładowanie funkcjonalności
-- Rozbudowany system konfiguracji
-- Wsparcie dla wielu profili użytkownika
-- Nowoczesny interfejs oparty o egui
+Features
 
-Struktura projektu
+- Native Rust architecture
+- Direct JNI integration
+- Runtime JVM interaction
+- Hot-reloadable modules
+- Multi-profile configuration system
+- Theme engine
+- ClickGUI framework
+- Mapping abstraction layer
+- Cross-platform support
+- Automated workspace tooling
+
+Workspace
 
 DarkClient/
 ├── protocol/
 ├── injector/
 ├── agent_loader/
 ├── client/
-│   ├── src/
-│   │   ├── lib.rs
-│   │   ├── state.rs
-│   │   ├── config.rs
-│   │   ├── mapping/
-│   │   ├── graphic/
-│   │   ├── module/
-│   │   └── net/
 ├── mapping_derive/
 ├── xtask/
-├── mappings.json
-└── conversion.py
+└── mappings.json
 
-Główne elementy
+Design Philosophy
 
-Injector
+DarkClient is built around three principles:
 
-Odpowiada za wykrywanie procesów Java, wybór instancji Minecrafta oraz uruchomienie procesu ładowania.
+Performance
 
-Agent Loader
+Critical systems run natively in Rust with minimal JVM overhead.
 
-Warstwa pośrednia działająca wewnątrz JVM. Zarządza komunikacją, stanem klienta oraz przeładowywaniem komponentów.
+Maintainability
 
-Client
+The codebase is split into isolated crates with clear responsibilities.
 
-Główna biblioteka projektu. Zawiera:
+Extensibility
 
-- system modułów
-- konfigurację
-- obsługę mapowań
-- interfejs użytkownika
-- warstwę sieciową
-- rejestrację funkcjonalności
+New modules, render components, settings, and mappings can be added without modifying core systems.
 
-Mapping System
-
-Mapowania JVM są oddzielone od logiki projektu, co upraszcza aktualizacje pomiędzy wersjami Minecrafta.
-
-Wymagania
-
-- Rust 1.95+
-- JDK 21+
-- Minecraft Java Edition
-
-Kompilacja
-
-Sklonuj repozytorium:
+Development
 
 git clone https://github.com/meklasdev/uddcmc.git
 cd uddcmc
 
-Wygeneruj mapowania:
+cargo build --release
+
+Generate mappings:
 
 python conversion.py
 
-Zbuduj projekt:
-
-cargo build --release
-
-Uruchomienie
-
-1. Włącz Minecraft.
-2. Uruchom injector.
-3. Wybierz proces.
-4. Rozpocznij ładowanie.
+Run injector:
 
 ./target/release/injector
 
-Tworzenie modułów
+Creating Modules
 
-Nowe funkcjonalności dodaje się przez implementację traitu "Module".
+Modules implement the "Module" trait and are registered through the client registry.
 
-Po zarejestrowaniu modułu w "register_modules()" zostanie on automatycznie uwzględniony przez system konfiguracji i interfejs użytkownika.
+The framework automatically handles:
 
-Roadmap
+- state management
+- configuration
+- keybinds
+- GUI integration
+- serialization
 
-- ukończenie edytora HUD
-- system automatycznych aktualizacji
-- API Lua
-- rozszerzalny system skryptów
-- dodatkowe narzędzia developerskie
+Goals
 
-Licencja
+- Stable runtime architecture
+- Clean internal APIs
+- Modern UI framework
+- Scriptable extension system
+- Fast version migration support
 
-Projekt udostępniany jest na licencji GPL-3.0. Szczegóły znajdują się w pliku LICENSE.
+License
+
+GPL-3.0
